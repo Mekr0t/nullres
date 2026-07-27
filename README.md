@@ -53,6 +53,16 @@ python -m tbot run   --config configs/btc_1h.toml    # backtest every strategy
 python -m tbot sweep --config configs/btc_1h.toml    # parameter sensitivity
 ```
 
+When something finally looks good, try to kill it before you believe it:
+
+```bash
+python -m tbot robust --config configs/btc_4h.toml --strategy donchian
+```
+
+Three falsification tests — parameter neighbourhood, sub-period stability
+against buy & hold, and cross-symbol transfer. A strategy has to survive all
+three to earn a forward paper-trading run.
+
 One thing the budget table will *not* tell you, and which is easy to get
 backwards: **moving to a slower timeframe does not reduce costs.** Volatility
 scales as `sqrt(bar length)`, so break-even holding *duration* is invariant —
@@ -156,11 +166,42 @@ edge. The positive total return comes from two good folds in 2022–23 being
 larger than two bad ones in 2024–25. On 2,200 bars and four folds, that is
 noise with a direction.
 
-The one result worth a second look is **donchian on 4h**: Sharpe 0.52 against
-buy & hold's 0.33, on 66 trades, with a materially smaller drawdown (-41% vs
--77%). It is a two-parameter rule that was not tuned, which is the only reason
-it is interesting at all. Its deflated Sharpe is -0.01, i.e. exactly the
-boundary of "could be luck". Treat it as a hypothesis, not a finding.
+**`donchian` on 4h was the one hypothesis worth testing, and it has been
+falsified.** Over the full period it looked like the best thing here: Sharpe
+0.52 against buy & hold's 0.33, on 66 trades, with a much smaller drawdown
+(-41% vs -77%). It survived a parameter-neighbourhood test (100% of 19 grid
+cells positive, median 0.52) and a cross-symbol test (positive on ETH, BNB,
+SOL, XRP).
+
+It died on sub-period stability, once buy & hold was put next to it year by year:
+
+```
+  year     total  sharpe |     hold  hold sh |  excess
+  2021     30.3%    0.93 |    32.5%    0.72  |   +0.21
+  2022    -26.8%   -1.13 |   -64.7%   -1.70  |   +0.56
+  2023     73.8%    1.75 |   156.0%    2.24  |   -0.50
+  2024     60.9%    1.32 |   121.7%    1.53  |   -0.21
+  2025     -8.4%   -0.41 |    -6.3%   -0.15  |   -0.27
+```
+
+The entire full-period advantage comes from **2022**, where it cut a -64.7%
+year to -26.8%. In every trending year it gave up roughly half the rally. That
+is not an alpha source — it is a drawdown-reduction mechanism, correctly priced,
+and its five-year Sharpe advantage is one bear market wearing a trend-following
+costume. You cannot know in advance whether the next five years look like 2022
+or like 2023.
+
+Reproduce with:
+
+```bash
+python -m tbot robust --config configs/btc_4h.toml --strategy donchian
+```
+
+Two caveats on that verdict, in fairness to it. Five annual observations is a
+very small sample to judge stability on, and the 60% pass threshold in
+`robustness.verdict` is a judgement call, not a statistic. And "reduces max
+drawdown from -77% to -41%" is a real property that some people would pay for —
+it is just not the property the Sharpe number was advertising.
 
 What improved between the original baseline and now was not the model. It was:
 

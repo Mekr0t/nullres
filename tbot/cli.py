@@ -6,6 +6,11 @@
     tbot run      --config configs/btc_1h.toml     backtest every strategy
     tbot sweep    --config configs/btc_1h.toml     threshold sensitivity surface
     tbot features --config configs/btc_1h.toml     out-of-sample importances
+    tbot robust   --config configs/btc_4h.toml -s donchian
+                                                   three falsification tests:
+                                                   parameter neighbourhood,
+                                                   sub-period stability vs hold,
+                                                   cross-symbol transfer
 
 Any option can be overridden without editing the file:
 
@@ -174,6 +179,61 @@ def cmd_budget(cfg, args) -> int:
     return 0
 
 
+def cmd_robust(cfg, args) -> int:
+    """Try three times to kill a strategy that looked good once."""
+    from tbot.robustness import (
+        DEFAULT_GRIDS, cross_symbol, parameter_neighbourhood,
+        period_stability, pivot_grid, verdict,
+    )
+
+    strategy = args.strategy
+    symbols = [s.strip() for s in args.symbols.split(",") if s.strip()]
+
+    _banner(f"ROBUSTNESS: {strategy} on {cfg.data.symbol} {cfg.data.interval}")
+    ctx = prepare(cfg, verbose=False)
+    params = cfg.params.get(strategy, {})
+    print(f"\nreported parameters: {params or 'defaults'}")
+
+    print("\n--- 1/3 parameter neighbourhood " + "-" * 44)
+    print("Does the result survive a change to its own parameters?\n")
+    grid = parameter_neighbourhood(cfg, strategy, ctx=ctx)
+    keys = [k for k in DEFAULT_GRIDS[strategy]]
+    print(pivot_grid(grid, keys))
+
+    print("\n--- 2/3 sub-period stability " + "-" * 47)
+    print("Is it profitable every year, or did one year carry it?\n")
+    stability = period_stability(cfg, strategy, ctx=ctx)
+    print(f"  {'year':<7}{'total':>9}{'sharpe':>8}{'|':>3}{'hold':>9}{'hold sh':>9}"
+          f"{'|':>3}{'excess':>8}{'trades':>8}")
+    for _, row in stability.iterrows():
+        print(f"  {row['period']:<7}{row['total_return']:>9.1%}{row['sharpe']:>8.2f}"
+              f"{'|':>3}{row['total_return_hold']:>9.1%}{row['sharpe_hold']:>9.2f}"
+              f"{'|':>3}{row['excess_sharpe']:>8.2f}{row['n_trades']:>8,}")
+
+    print("\n--- 3/3 cross-symbol transfer " + "-" * 46)
+    print(f"Does it work on anything other than {cfg.data.symbol}?\n")
+    transfer = cross_symbol(cfg, strategy, symbols)
+    print(f"  {'symbol':<12}{'total':>10}{'sharpe':>9}{'vs hold':>9}{'trades':>8}  note")
+    for _, row in transfer.iterrows():
+        if pd.isna(row["sharpe"]):
+            print(f"  {row['symbol']:<12}{'—':>10}{'—':>9}{'—':>9}{'—':>8}  {row['note']}")
+        else:
+            print(f"  {row['symbol']:<12}{row['total_return']:>10.1%}"
+                  f"{row['sharpe']:>9.2f}{row['vs_hold']:>9.2f}{row['n_trades']:>8,}")
+
+    ok, notes = verdict(grid, stability, transfer)
+    _banner("VERDICT: " + ("SURVIVED" if ok else "KILLED"))
+    for note in notes:
+        print(f"  {note}")
+    if ok:
+        print("\nThis strategy survived three attempts to falsify it. That earns it")
+        print("a forward paper-trading run — not capital, and not confidence.")
+    else:
+        print("\nThis strategy is not worth further work in its current form.")
+        print("That is a cheap answer to have obtained today rather than in six months.")
+    return 0
+
+
 def cmd_features(cfg, args) -> int:
     from tbot.models.classifier import feature_importance
 
@@ -199,6 +259,7 @@ COMMANDS = {
     "run": cmd_run,
     "audit": cmd_audit,
     "sweep": cmd_sweep,
+    "robust": cmd_robust,
     "features": cmd_features,
 }
 
@@ -211,6 +272,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--strategy", "-s", default="ml_meta",
                         help="sweep: which strategy to sweep")
     parser.add_argument("--save", action="store_true", help="run: write metrics JSON")
+    parser.add_argument("--symbols", default="ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT",
+                        help="robust: symbols for the cross-symbol transfer test")
     parser.add_argument("--set", action="append", default=[], metavar="a.b=v",
                         help="override a config value, e.g. --set sizing.min_hold=12")
     args = parser.parse_args(argv)

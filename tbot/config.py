@@ -101,6 +101,11 @@ class RunConfig:
     cost: CostConfig = field(default_factory=CostConfig)
     sizing: SizingConfig = field(default_factory=SizingConfig)
     strategies: list[str] = field(default_factory=lambda: ["buy_hold"])
+    # Per-strategy keyword arguments, e.g. [params.donchian] entry = 96.
+    # Rule parameters belong in the config for the same reason everything else
+    # does: a number that influenced a result has to be recorded somewhere the
+    # result can be reproduced from.
+    params: dict[str, dict[str, Any]] = field(default_factory=dict)
     out_dir: str = "reports"
 
 

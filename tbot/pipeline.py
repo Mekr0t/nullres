@@ -121,7 +121,7 @@ def run_pipeline(cfg, verbose: bool = True, ctx: Context | None = None) -> dict[
     for name in names:
         if verbose:
             print(f"\n-> {name}")
-        strategy = build_strategy(name)
+        strategy = build_strategy(name, cfg.params.get(name))
         positions = strategy.positions(ctx)
         result = backtest(ctx.bars, positions, cfg.cost)
         metrics = summarize(result, cfg.data.bars_per_year, n_trials=n_trials)

@@ -8,6 +8,17 @@ name = "btc_4h"
 strategies = ["sma_cross", "donchian", "mean_reversion", "ml_direction", "ml_meta"]
 out_dir = "reports"
 
+# Rule parameters live here so a result can be reproduced from the config alone.
+# These are the defaults the rules shipped with — they were NOT tuned, which is
+# the only reason the donchian result was worth investigating.
+[params.donchian]
+entry = 96
+exit = 48
+
+[params.sma_cross]
+fast = 50
+slow = 200
+
 [data]
 symbol = "BTCUSDT"
 interval = "4h"

@@ -100,6 +100,39 @@ def deflated_sharpe(sharpe: float, n_obs: int, bars_per_year: int,
     return float(sharpe - e_max * np.sqrt(bars_per_year / n_obs))
 
 
+def by_period(result, bars_per_year: int, mask=None, freq: str = "YE") -> pd.DataFrame:
+    """Break performance down by calendar period.
+
+    A strategy with a Sharpe of 0.5 built from one spectacular year and four
+    flat ones is not the same object as one that earned 0.5 every year, and the
+    headline number cannot tell them apart. This is the cheapest test for
+    "did I fit a regime that has since ended".
+
+    Args:
+        mask: restrict to these bars (pass the out-of-sample mask; bars outside
+            it contribute structural zeros that deflate the volatility estimate
+            and inflate Sharpe).
+    """
+    r = result.returns
+    turnover = result.turnover
+    if mask is not None:
+        r, turnover = r[mask], turnover[mask]
+
+    rows = []
+    for period, chunk in r.groupby(pd.Grouper(freq=freq)):
+        if len(chunk) < 2 or chunk.std() == 0:
+            continue
+        trades = int((turnover.loc[chunk.index] > 1e-12).sum())
+        rows.append({
+            "period": str(period)[:4] if freq.startswith("Y") else str(period)[:10],
+            "bars": len(chunk),
+            "total_return": float(np.exp(chunk.sum()) - 1.0),
+            "sharpe": float(chunk.mean() / chunk.std() * np.sqrt(bars_per_year)),
+            "n_trades": trades,
+        })
+    return pd.DataFrame(rows)
+
+
 # (metric key, column label, column width, formatter)
 COLUMNS = [
     ("total_return", "total",  11, lambda v: _pct_or_sci(v)),

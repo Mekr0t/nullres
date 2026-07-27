@@ -101,7 +101,34 @@ Permutation importance on the final fold's *test* window. In-sample importance
 tells you what the model memorised; this tells you what survived, which is a
 much shorter list. Most values will be ~0. That is the normal result.
 
-## 8. Forward paper trade
+## 8. Try to kill anything that looks good
+
+```bash
+python -m tbot robust --config configs/btc_4h.toml --strategy donchian
+```
+
+Three attempts to falsify, all of which a real effect should survive:
+
+- **Parameter neighbourhood** — do nearby parameter values also work? A real
+  effect degrades smoothly; if one cell in a grid is positive and its
+  neighbours are not, you found the cell that fit, not an edge.
+- **Sub-period stability** — profitable *relative to buy & hold* in most years,
+  or carried by one? Note the benchmark clause. A long-only filter over a bull
+  market is profitable in most years by construction, which is why the absolute
+  per-year Sharpe cannot answer this and the excess can.
+- **Cross-symbol transfer** — does it work on other instruments? A rule that
+  describes market structure should generalise. A rule that only works on the
+  asset you developed it on describes that asset's history.
+
+This is where the repo's one promising result died. `donchian` on 4h passed the
+first and third tests comfortably and failed the second: its whole five-year
+Sharpe advantage came from 2022, and it underperformed holding in every
+trending year. See the README for the table.
+
+Surviving all three does not certify a strategy. It only means it has not yet
+been cheaply disproved.
+
+## 9. Forward paper trade
 
 Everything above is in-sample with respect to the research process, because you
 chose the symbol, the dates and the direction knowing how the market turned out.

@@ -25,10 +25,13 @@ REGISTRY: dict[str, type[Strategy]] = {
 }
 
 
-def build(name: str) -> Strategy:
+def build(name: str, params: dict | None = None) -> Strategy:
     if name not in REGISTRY:
         raise ValueError(f"unknown strategy {name!r}; choose from {sorted(REGISTRY)}")
-    return REGISTRY[name]()
+    try:
+        return REGISTRY[name](**(params or {}))
+    except TypeError as exc:
+        raise ValueError(f"bad params for strategy {name!r}: {exc}") from exc
 
 
 __all__ = ["REGISTRY", "build", "Strategy", "Context"]
