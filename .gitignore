@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Cached market data — reproducible via `tbot fetch`, do not commit
+data/
+!data/.gitkeep
+
+# Run outputs
+reports/
+*.joblib

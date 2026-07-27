@@ -1,0 +1,57 @@
+# BTC/USDT hourly — the hard case.
+#
+# At 1h the average bar moves ~0.4% while a round trip costs ~0.24%. There is
+# very little room, which is exactly why it is a good stress test of the
+# harness. Expect modest or negative results; that is information, not failure.
+
+name = "btc_1h"
+strategies = ["sma_cross", "donchian", "mean_reversion", "ml_direction", "ml_meta"]
+out_dir = "reports"
+
+[data]
+symbol = "BTCUSDT"
+interval = "1h"
+start = "2020-01"
+end = "2025-12"
+cache_dir = "data"
+source = "binance"
+
+[label]
+kind = "triple_barrier"   # triple_barrier | fwd_return | next_bar_sign
+# horizon and sizing.min_hold below are NOT free parameters. `tbot budget` says
+# a 51%-accurate model at 12bps/side needs ~500 bars to clear costs at this
+# volatility, so the label has to ask a ~500-bar question. A 24-bar label with
+# a 500-bar hold is asking one question and acting on a different one.
+horizon = 504             # ~3 weeks
+vol_window = 72
+upper = 1.5               # profit target, in sigma
+lower = 1.5               # stop, in sigma
+
+[split]
+scheme = "expanding"      # expanding | rolling
+n_folds = 6
+min_train = 8000
+embargo = 504             # >= the label horizon, so folds cannot overlap
+
+[model]
+kind = "hgb"
+max_iter = 300
+learning_rate = 0.05
+max_depth = 4
+l2 = 1.0
+min_samples_leaf = 200
+seed = 0
+
+[cost]
+fee_bps = 10.0            # Binance spot taker, one side
+slippage_bps = 2.0
+
+[sizing]
+long_entry = 0.56
+long_exit = 0.50
+short_entry = 0.44
+short_exit = 0.50
+allow_short = true
+min_hold = 336            # the single most important cost lever; see `tbot budget`
+max_leverage = 1.0
+vol_target = 0.0          # set to e.g. 0.4 for 40% annualised vol targeting

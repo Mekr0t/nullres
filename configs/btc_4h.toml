@@ -1,0 +1,55 @@
+# BTC/USDT 4-hour — the same pipeline where the economics are friendlier.
+#
+# A 4h bar moves roughly twice as far as a 1h bar for the same fixed cost, so
+# the same edge clears the spread far more comfortably. If a signal works at
+# 1h it should work better here; if it ONLY works at 1h, be suspicious.
+
+name = "btc_4h"
+strategies = ["sma_cross", "donchian", "mean_reversion", "ml_direction", "ml_meta"]
+out_dir = "reports"
+
+[data]
+symbol = "BTCUSDT"
+interval = "4h"
+start = "2020-01"
+end = "2025-12"
+cache_dir = "data"
+source = "binance"
+
+[label]
+kind = "triple_barrier"
+# Same reasoning as btc_1h, but 4h bars move ~2x as far for the same fixed
+# cost, so break-even arrives in ~130 bars instead of ~500.
+horizon = 126             # ~3 weeks
+vol_window = 60
+upper = 1.5
+lower = 1.5
+
+[split]
+scheme = "expanding"
+n_folds = 5
+min_train = 3000
+embargo = 126
+
+[model]
+kind = "hgb"
+max_iter = 300
+learning_rate = 0.05
+max_depth = 4
+l2 = 1.0
+min_samples_leaf = 100
+seed = 0
+
+[cost]
+fee_bps = 10.0
+slippage_bps = 2.0
+
+[sizing]
+long_entry = 0.56
+long_exit = 0.50
+short_entry = 0.44
+short_exit = 0.50
+allow_short = true
+min_hold = 84             # see `tbot budget --config configs/btc_4h.toml`
+max_leverage = 1.0
+vol_target = 0.0

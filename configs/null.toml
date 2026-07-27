@@ -1,0 +1,53 @@
+# Synthetic random walk — the control experiment.
+#
+# There is no edge in this data by construction. Every strategy here MUST come
+# out flat-to-negative after costs. If anything shows a positive Sharpe, the
+# bug is in the harness, not the market, and every other result in this repo is
+# void until you find it.
+#
+#     python -m tbot run --config configs/null.toml
+
+name = "null"
+strategies = ["sma_cross", "donchian", "mean_reversion", "ml_direction", "ml_meta"]
+out_dir = "reports"
+
+[data]
+symbol = "SYNTH"
+interval = "1h"
+source = "synthetic"
+
+[label]
+kind = "triple_barrier"
+horizon = 504
+vol_window = 72
+upper = 1.5
+lower = 1.5
+
+[split]
+scheme = "expanding"
+n_folds = 5
+min_train = 8000
+embargo = 504
+
+[model]
+kind = "hgb"
+max_iter = 200
+learning_rate = 0.05
+max_depth = 4
+l2 = 1.0
+min_samples_leaf = 200
+seed = 0
+
+[cost]
+fee_bps = 10.0
+slippage_bps = 2.0
+
+[sizing]
+long_entry = 0.56
+long_exit = 0.50
+short_entry = 0.44
+short_exit = 0.50
+allow_short = true
+min_hold = 336
+max_leverage = 1.0
+vol_target = 0.0

@@ -1,0 +1,131 @@
+"""End-to-end orchestration: bars -> features -> labels -> positions -> metrics.
+
+One rule governs the ordering here. Features and labels are built on the FULL
+frame first, and only then are rows dropped and positions renumbered. Building
+them per-fold would be slower and no safer; building them after dropping rows
+would silently shorten every rolling window across the gaps.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+import pandas as pd
+
+from tbot.backtest import backtest, summarize
+from tbot.data import load_bars
+from tbot.features import build_features
+from tbot.labels import build_label
+from tbot.strategies import Context, build as build_strategy
+from tbot.validation import describe_folds, purged_walk_forward, remap_t_end
+
+
+def prepare(cfg, verbose: bool = True) -> Context:
+    """Load data, build features and labels, align them, and mark the OOS window."""
+    bars = load_bars(cfg.data)
+    features = build_features(bars)
+    label = build_label(bars, cfg.label)
+
+    # Drop the warmup period where rolling windows have not filled, plus any bar
+    # with no volatility estimate. Rows with a NaN target are KEPT: the model
+    # predicts on them, it just does not train on them.
+    keep = features.notna().all(axis=1) & label["sigma"].notna() & label["ret"].notna()
+    keep_arr = keep.to_numpy()
+    if keep_arr.sum() < 1_000:
+        raise SystemExit(
+            f"only {int(keep_arr.sum())} usable bars after alignment — "
+            f"widen the date range or shorten the feature windows"
+        )
+
+    t_end = remap_t_end(label["t_end"].to_numpy(dtype=np.int64), keep_arr)
+    bars, features, label = bars[keep], features[keep], label[keep].copy()
+    label["t_end"] = t_end
+
+    # The out-of-sample window is the union of every walk-forward test fold.
+    # Every strategy, rules included, is judged only here.
+    oos = np.zeros(len(bars), dtype=bool)
+    for _, test in purged_walk_forward(t_end, cfg.split):
+        oos[test] = True
+    oos_mask = pd.Series(oos, index=bars.index)
+
+    if verbose:
+        labelled = label["y"].notna()
+        print(f"\n{len(bars):,} usable bars | {features.shape[1]} features "
+              f"| {int(labelled.sum()):,} labelled | base rate {label['y'].mean():.3f}")
+        print(f"out-of-sample: {int(oos.sum()):,} bars "
+              f"({bars.index[oos][0]:%Y-%m-%d} .. {bars.index[oos][-1]:%Y-%m-%d})")
+        for row in describe_folds(t_end, cfg.split, bars.index):
+            print(f"  fold {row['fold']}: train {row['train']:>7,} "
+                  f"(purged {row['purged']:>4,})  test {row['test']:>6,}  "
+                  f"[{row['test_from']}..{row['test_to']}]")
+
+    if verbose:
+        for warning in coherence_warnings(cfg, bars):
+            print(f"  WARNING: {warning}")
+
+    return Context(bars=bars, features=features, label=label, cfg=cfg,
+                   oos_mask=oos_mask, verbose=verbose)
+
+
+def coherence_warnings(cfg, bars: pd.DataFrame) -> list[str]:
+    """Catch configurations that cannot work, before spending compute on them.
+
+    These are not style notes. Each one describes a setup where the backtest
+    will produce a number that means nothing.
+    """
+    from tbot.costs import breakeven_hold, required_accuracy
+
+    out = []
+    horizon = cfg.label.horizon
+    hold = max(cfg.sizing.min_hold, 1)
+
+    # A model trained to predict 24 bars ahead tells you nothing about whether
+    # to keep a position for 500 — and vice versa.
+    if hold > 4 * horizon or horizon > 4 * hold:
+        out.append(
+            f"label.horizon={horizon} but sizing.min_hold={hold}. The model "
+            f"predicts a {horizon}-bar outcome while the strategy holds for "
+            f"{hold} bars; these should be within a factor of ~2."
+        )
+
+    sigma = float(np.log(bars["close"]).diff().std())
+    need = required_accuracy(sigma, hold, cfg.cost.fee_bps, cfg.cost.slippage_bps)
+    if need > 0.56:
+        be = breakeven_hold(sigma, 0.52, cfg.cost.fee_bps, cfg.cost.slippage_bps)
+        target = "impossible at any accuracy" if need > 1.0 else f"{need:.1%} accuracy"
+        out.append(
+            f"at min_hold={hold} this strategy needs {target} just to break even. "
+            f"A realistic 52% model would need to hold ~{be:,.0f} bars. "
+            f"Run `tbot budget` for the full table."
+        )
+    return out
+
+
+def run_pipeline(cfg, verbose: bool = True, ctx: Context | None = None) -> dict[str, dict]:
+    """Run every configured strategy and return {name: metrics}.
+
+    A caller may pass a prepared `ctx` to avoid recomputing features when only
+    sizing or cost parameters change (see `tbot sweep`). The context's cfg is
+    repointed at `cfg` so those overrides actually take effect — strategies read
+    their parameters from ctx.cfg, not from the closure.
+    """
+    if ctx is None:
+        ctx = prepare(cfg, verbose=verbose)
+    else:
+        ctx.cfg = cfg
+        ctx.verbose = verbose
+
+    names = list(dict.fromkeys(["buy_hold", *cfg.strategies]))
+    n_trials = max(len(names), 1)
+    results: dict[str, dict] = {}
+
+    for name in names:
+        if verbose:
+            print(f"\n-> {name}")
+        strategy = build_strategy(name)
+        positions = strategy.positions(ctx)
+        result = backtest(ctx.bars, positions, cfg.cost)
+        metrics = summarize(result, cfg.data.bars_per_year, n_trials=n_trials)
+        results[name] = metrics
+        ctx.diagnostics.setdefault(name, {})["result"] = result
+
+    return results

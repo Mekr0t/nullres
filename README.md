@@ -1,0 +1,166 @@
+# tbot — an honest research harness for systematic trading
+
+A repo for asking "does this strategy have an edge?" and getting an answer you
+can trust — including when the answer is no, which it usually is.
+
+It grew out of [`scripts/baseline.py`](scripts/baseline.py), which demonstrated
+a label leak producing a `2.92e+41x` return. That script's closing line was:
+
+> Walk-forward validation did not catch the leak — only reading the label
+> definition would have.
+
+That is now a command:
+
+```bash
+python -m tbot audit --config configs/btc_1h.toml
+```
+
+---
+
+## Quick start
+
+```bash
+python -m tbot budget --config configs/btc_1h.toml
+```
+
+Run that **first**. It tells you what accuracy your cost structure demands
+before you write a single feature. For hourly BTC at 12bps a side:
+
+```
+per-bar volatility      0.6715%
+round-trip cost         0.2400%   (12bps/side)
+
+Accuracy needed to break even, by holding period:
+  hold (bars)      E|move|    accuracy
+  1                  0.54%      72.4%
+  12                 1.86%      56.5%
+  168                6.94%      51.7%
+  720               14.38%      50.8%
+```
+
+Flip your position every bar and you need to be right 72% of the time. This is
+arithmetic, not pessimism, and it explains the original `-100%` result better
+than any amount of model tuning would.
+
+Then:
+
+```bash
+python -m tbot fetch --config configs/btc_1h.toml    # cache bars (offline after this)
+python -m tbot audit --config configs/btc_1h.toml    # prove the harness isn't lying
+python -m tbot run   --config configs/btc_1h.toml    # backtest every strategy
+python -m tbot sweep --config configs/btc_1h.toml    # parameter sensitivity
+```
+
+Override anything without editing files:
+
+```bash
+python -m tbot run -c configs/btc_1h.toml --set sizing.min_hold=168
+```
+
+---
+
+## The three rules everything else follows from
+
+1. **A feature at bar `t` may only use information available at the close of
+   bar `t`.** Enforced by `audit.check_point_in_time`, which recomputes features
+   on truncated history and asserts nothing changed.
+2. **A position decided at bar `t` is filled at the open of bar `t+1`.** There
+   is no mechanism by which you observe a close and also trade at it.
+3. **Every position change pays fees and slippage.** Costs are not a haircut
+   applied at the end; they compound against you on every single trade.
+
+---
+
+## What's here
+
+```
+tbot/
+  config.py        typed TOML config — one file fully describes an experiment
+  costs.py         break-even arithmetic: run this before modelling
+  audit.py         four mechanical leak detectors
+  pipeline.py      bars -> features -> labels -> positions -> metrics
+  data/            Binance archives (cached) + synthetic null data
+  features/        32 stationary, point-in-time technical features
+  labels/          triple-barrier, vol-scaled forward return, next-bar sign
+  validation/      purged + embargoed walk-forward, uniqueness weights
+  models/          the only module allowed to call .fit()
+  backtest/        execution engine, position sizing, metrics
+  strategies/      rule baselines + ML direction + ML meta-labelling
+configs/           btc_1h, btc_4h, null (the control experiment)
+docs/              the reasoning behind each of the above
+tests/             48 tests, including leaks that MUST be caught
+```
+
+---
+
+## Results as of the last run
+
+Out-of-sample, BTCUSDT, purged walk-forward, 12bps/side, 2020-12 to 2025-12.
+
+**1h** (44,190 OOS bars):
+
+| strategy | total | sharpe | max dd | trades | cost drag |
+|---|---|---|---|---|---|
+| buy & hold | 355.3% | 0.46 | -77.2% | 2 | 0.2% |
+| sma_cross | 173.4% | 0.45 | -57.6% | 308 | 30.9% |
+| donchian | 107.7% | 0.38 | -54.7% | 304 | 30.6% |
+| ml_direction | -15.2% | -0.06 | -69.6% | 132 | 17.7% |
+| ml_meta | -35.4% | -0.18 | -72.4% | 127 | 14.9% |
+
+**4h** (9,980 OOS bars):
+
+| strategy | total | sharpe | max dd | trades | cost drag |
+|---|---|---|---|---|---|
+| donchian | 144.4% | **0.52** | -40.7% | 66 | 7.6% |
+| buy & hold | 148.6% | 0.33 | -77.0% | 2 | 0.2% |
+| sma_cross | 74.8% | 0.30 | -56.2% | 62 | 7.2% |
+| ml_direction | -29.2% | -0.15 | -49.4% | 112 | 16.5% |
+| ml_meta | -73.3% | -0.66 | -79.7% | 113 | 13.8% |
+
+### The honest reading
+
+**No machine-learned edge was found.** Fold AUCs sit at 0.50–0.53 — a real but
+tiny ranking signal that does not survive costs at any holding period tested.
+Every deflated Sharpe in the table is at or below zero once you account for how
+many variants were tried.
+
+The one result worth a second look is **donchian on 4h**: Sharpe 0.52 against
+buy & hold's 0.33, on 66 trades, with a materially smaller drawdown (-41% vs
+-77%). It is a two-parameter rule that was not tuned, which is the only reason
+it is interesting at all. Its deflated Sharpe is -0.01, i.e. exactly the
+boundary of "could be luck". Treat it as a hypothesis, not a finding.
+
+What improved between the original baseline and now was not the model. It was:
+
+| | baseline | now |
+|---|---|---|
+| label | sign of next bar | triple barrier, vol-scaled, ~3 week horizon |
+| purge | fixed 24 bars | actual per-label resolution time + embargo |
+| position changes | 15,527 | 132 |
+| cost drag | **100.0%** | 17.7% |
+| result | -100% | -15.2% |
+
+The strategy still doesn't make money. But it now loses for the honest reason
+(there is no signal) rather than the structural one (it was being asked an
+impossible question and charged for the privilege 15,527 times).
+
+---
+
+## What this repo will not do for you
+
+It will not find an edge. That is not what a harness is for. It will tell you,
+quickly and with a straight face, when you haven't found one — which is the
+expensive thing to learn late.
+
+Nothing here is investment advice, and none of it is connected to an exchange.
+Passing every check in this repo means your measurements are sound; it says
+nothing about whether a strategy will make money in the future. Before risking
+anything real, forward paper-trade on bars the model has never seen.
+
+## Docs
+
+- [00 — The rules](docs/00-the-rules.md)
+- [01 — Research workflow](docs/01-workflow.md)
+- [02 — Leakage catalogue](docs/02-leakage.md)
+- [03 — Costs and execution](docs/03-costs.md)
+- [04 — Labels and strategies](docs/04-labels-and-strategies.md)
