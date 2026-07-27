@@ -29,3 +29,6 @@ packages = ["tbot"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "slow: end-to-end runs (~1-2 min). Deselect with -m 'not slow'.",
+]

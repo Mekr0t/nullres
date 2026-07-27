@@ -119,16 +119,15 @@ signal.
 
 The ranked list, given what this repo has already ruled out:
 
-1. **Longer timeframes.** The cost arithmetic gets easier roughly as `sqrt(h)`.
-   Daily bars need ~50.3% accuracy at 500-bar holds; hourly needs 72% at one bar.
-2. **A better primary rule for `ml_meta`.** The model is a filter. Filtering a
-   coin flip yields a filtered coin flip.
-3. **Data the price series doesn't contain.** Funding rates, open interest,
+1. **A better primary rule for `ml_meta`.** The model is a filter. Filtering a
+   coin flip yields a filtered coin flip, which is what the current results are.
+   This is the highest-leverage change available.
+2. **Data the price series doesn't contain.** Funding rates, open interest,
    order-book imbalance, on-chain flows. Thirty-two technical indicators derived
    from OHLCV are thirty-two views of the same four numbers, and `tbot features`
    will show you most of them carry nothing out of sample — on the 4h config
    only `vol_72` clears 0.01 AUC, and a third of them score *negative*.
-4. **Cross-sectional instead of time-series.** "Which of these 50 assets will
+3. **Cross-sectional instead of time-series.** "Which of these 50 assets will
    outperform the others" is a genuinely easier question than "will this one go
    up", and it hedges out the market move. It also introduces survivorship bias
    as a live concern — see [02 — Leakage](02-leakage.md#5-survivorship-and-delisting).

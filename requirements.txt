@@ -1,0 +1,29 @@
+# Exact versions that produced the results in README.md.
+#
+# pyproject.toml declares loose floors for library consumers; this file pins the
+# research environment. Backtest results are only comparable across runs if the
+# numerics are identical — a changed default in a pandas rolling or resample
+# operation can shift every feature without failing a single test.
+#
+#     pip install -r requirements.txt
+#
+# Regenerate deliberately, and re-run `tbot audit` and the README numbers after.
+
+certifi==2026.7.22
+charset-normalizer==3.4.9
+idna==3.18
+joblib==1.5.3
+numpy==2.5.1
+pandas==3.0.5
+pyarrow==25.0.0
+python-dateutil==2.9.0.post0
+requests==2.34.2
+scikit-learn==1.9.0
+scipy==1.18.0
+six==1.17.0
+threadpoolctl==3.6.0
+tzdata==2026.3
+urllib3==2.7.0
+
+# dev
+pytest==9.1.1

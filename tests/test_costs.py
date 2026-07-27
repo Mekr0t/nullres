@@ -56,3 +56,30 @@ def test_a_51_percent_model_needs_weeks_at_1h():
     """The headline number for hourly crypto, pinned so it cannot silently drift."""
     h = breakeven_hold(SIGMA_1H_BTC, 0.51, 10, 2)
     assert 300 < h < 800, f"expected several hundred bars, got {h:.0f}"
+
+
+def test_breakeven_duration_is_invariant_to_timeframe():
+    """Moving to a slower timeframe does NOT reduce costs. Easy to get wrong.
+
+    Volatility scales as sqrt(bar length), so break-even bars scale as
+    1/bar_length, so break-even *duration* is constant. Measured on BTCUSDT:
+
+        1h   sigma 0.6715%   ->  502 bars  = 20.9 days
+        4h   sigma 1.3430%   ->  133 bars  = 22.2 days
+        1d   sigma 3.2912%   ->   21 bars  = 21.0 days
+
+    What matters is how long you hold in wall-clock time, not how many bars
+    that happens to be. Choose a timeframe for signal quality and sample size;
+    choose a holding period to beat costs. They are separate decisions.
+    """
+    hours_per_bar = {"1h": 1, "4h": 4, "1d": 24}
+    durations = {}
+    for name, hours in hours_per_bar.items():
+        sigma = SIGMA_1H_BTC * np.sqrt(hours)      # sqrt-of-time scaling
+        bars = breakeven_hold(sigma, 0.51, 10, 2)
+        durations[name] = bars * hours             # in hours
+
+    values = list(durations.values())
+    assert max(values) / min(values) < 1.01, (
+        f"break-even duration should be timeframe-invariant, got {durations}"
+    )

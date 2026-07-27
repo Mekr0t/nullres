@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Fast suite
+        run: pytest -m "not slow" -q
+
+  null-control:
+    name: null control (no edge in a random walk)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install -r requirements.txt
+
+      # The gate that matters. Runs the entire pipeline against a geometric
+      # random walk, where the correct answer is known to be "no edge". A unit
+      # test cannot catch a lookahead reintroduced during a refactor; this can.
+      # Uses synthetic data only, so it needs no network and no cached bars.
+      - name: End-to-end control
+        run: pytest -m slow -q
+
+      # Belt and braces: the same check through the CLI, which also exercises
+      # config loading, the leak audit, and the exit code contract.
+      - name: Leak audit (offline config)
+        run: python -m tbot audit --config configs/null.toml

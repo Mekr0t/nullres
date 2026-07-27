@@ -1,0 +1,60 @@
+# BTC/USDT daily — the timeframe the cost arithmetic actually permits.
+#
+# The reasoning, from `tbot budget`: a fixed 24bps round trip is charged
+# regardless of timeframe, while the expected move grows as sqrt(bars). Hourly
+# bars move ~0.67%, so a round trip eats 36% of a typical move. Daily bars move
+# ~3.5%, so the same round trip eats ~7%. That is the whole argument for moving
+# up — nothing about the model changes.
+#
+# The cost is sample size: ~2,200 bars instead of 52,000. Folds are small, the
+# model is deliberately shrunk to match, and a single good year can dominate a
+# fold. Treat any result here as lower-confidence than the 1h numbers, not
+# higher, however much prettier it looks.
+
+name = "btc_1d"
+strategies = ["sma_cross", "donchian", "mean_reversion", "ml_direction", "ml_meta"]
+out_dir = "reports"
+
+[data]
+symbol = "BTCUSDT"
+interval = "1d"
+start = "2020-01"
+end = "2025-12"
+cache_dir = "data"
+source = "binance"
+
+[label]
+kind = "triple_barrier"
+horizon = 20              # ~4 trading weeks; see the budget table
+vol_window = 30
+upper = 1.5
+lower = 1.5
+
+[split]
+scheme = "expanding"
+n_folds = 4               # fewer folds: there is simply less data
+min_train = 600
+embargo = 20              # >= the label horizon
+
+[model]
+kind = "hgb"
+max_iter = 200
+learning_rate = 0.03      # slower learning for a much smaller sample
+max_depth = 3             # shallower: 600 training rows cannot support depth 4
+l2 = 5.0                  # stronger regularisation
+min_samples_leaf = 40
+seed = 0
+
+[cost]
+fee_bps = 10.0
+slippage_bps = 2.0
+
+[sizing]
+long_entry = 0.56
+long_exit = 0.50
+short_entry = 0.44
+short_exit = 0.50
+allow_short = true
+min_hold = 14
+max_leverage = 1.0
+vol_target = 0.0

@@ -63,9 +63,45 @@ needs to hold for three weeks. The original baseline held for one bar.
 This is why the baseline lost 100%, and why no amount of feature engineering
 would have rescued it. The costs were structurally larger than the signal.
 
+## Changing timeframe is NOT a cost lever
+
+This one is worth getting right, because the intuition points the wrong way.
+
+Moving from 1h to 1d bars *looks* like it should help: daily bars move ~3.3%
+against the same fixed 24bps round trip, versus 0.67% for hourly. The cost is a
+much smaller fraction of the move.
+
+It does not help, because volatility scales as `sqrt(bar length)`:
+
+```
+sigma      ∝ sqrt(bar_length)
+breakeven bars ∝ 1 / sigma^2  ∝  1 / bar_length
+breakeven DURATION = bars x bar_length = constant
+```
+
+Measured on BTCUSDT at 51% accuracy and 12bps/side:
+
+```
+1h    sigma 0.6715%   ->  502 bars   =  20.9 days
+4h    sigma 1.3430%   ->  133 bars   =  22.2 days
+1d    sigma 3.2912%   ->   21 bars   =  21.0 days
+```
+
+**Break-even is ~21 days regardless of timeframe.** `tests/test_costs.py::
+test_breakeven_duration_is_invariant_to_timeframe` pins this.
+
+So what does timeframe change? Signal-to-noise (fewer, larger bars carry less
+microstructure noise), sample size (52,000 hourly bars vs 2,200 daily), and how
+precisely you can time an entry. Those are real considerations. Costs are not
+among them.
+
+Choose the **timeframe** for signal quality and sample size. Choose the
+**holding period** to beat costs. They are separate decisions, and conflating
+them will send you chasing a saving that does not exist.
+
 ## The three levers, in order of effect
 
-### 1. Hold longer
+### 1. Hold longer (in wall-clock time, not bars)
 
 Turnover is the dominant term, and `sizing.min_hold` is a hard cap:
 `n_bars / min_hold` state changes, maximum. Going from `min_hold=12` to `336`

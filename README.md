@@ -1,5 +1,7 @@
 # tbot — an honest research harness for systematic trading
 
+[![CI](https://github.com/Mekr0t/tbot/actions/workflows/ci.yml/badge.svg)](https://github.com/Mekr0t/tbot/actions/workflows/ci.yml)
+
 A repo for asking "does this strategy have an edge?" and getting an answer you
 can trust — including when the answer is no, which it usually is.
 
@@ -51,6 +53,13 @@ python -m tbot run   --config configs/btc_1h.toml    # backtest every strategy
 python -m tbot sweep --config configs/btc_1h.toml    # parameter sensitivity
 ```
 
+One thing the budget table will *not* tell you, and which is easy to get
+backwards: **moving to a slower timeframe does not reduce costs.** Volatility
+scales as `sqrt(bar length)`, so break-even holding *duration* is invariant —
+~21 days for BTC whether you use 1h, 4h or 1d bars. Pick the timeframe for
+signal quality and sample size; pick the holding period to beat costs. See
+[03 — Costs](docs/03-costs.md#changing-timeframe-is-not-a-cost-lever).
+
 Override anything without editing files:
 
 ```bash
@@ -86,7 +95,7 @@ tbot/
   models/          the only module allowed to call .fit()
   backtest/        execution engine, position sizing, metrics
   strategies/      rule baselines + ML direction + ML meta-labelling
-configs/           btc_1h, btc_4h, null (the control experiment)
+configs/           btc_1h, btc_4h, btc_1d, null (the control experiment)
 docs/              the reasoning behind each of the above
 tests/             48 tests, including leaks that MUST be caught
 ```
@@ -117,12 +126,35 @@ Out-of-sample, BTCUSDT, purged walk-forward, 12bps/side, 2020-12 to 2025-12.
 | ml_direction | -29.2% | -0.15 | -49.4% | 112 | 16.5% |
 | ml_meta | -73.3% | -0.66 | -79.7% | 113 | 13.8% |
 
+**1d** (1,424 OOS bars):
+
+| strategy | total | sharpe | max dd | trades | cost drag |
+|---|---|---|---|---|---|
+| buy & hold | 101.6% | 0.29 | -66.7% | 1 | 0.1% |
+| sma_cross | 85.8% | **0.36** | -37.3% | 8 | 1.0% |
+| donchian | 48.9% | 0.30 | -25.7% | 12 | 1.4% |
+| ml_meta | 20.8% | 0.13 | -40.1% | 67 | 7.8% |
+| ml_direction | 9.6% | 0.04 | -64.3% | 65 | 10.2% |
+
 ### The honest reading
 
-**No machine-learned edge was found.** Fold AUCs sit at 0.50–0.53 — a real but
-tiny ranking signal that does not survive costs at any holding period tested.
-Every deflated Sharpe in the table is at or below zero once you account for how
-many variants were tried.
+**No machine-learned edge was found, on any timeframe.** Fold AUCs sit at
+0.50–0.53 on 1h and 4h — a real but tiny ranking signal that does not survive
+costs. Every deflated Sharpe in all three tables is at or below zero once you
+account for how many variants were tried.
+
+Daily deserves a specific warning, because its ML rows are the only positive
+ones and they are the *least* trustworthy numbers here. The per-fold AUCs decay
+monotonically and end up **below** coin-flip:
+
+```
+ml_direction   fold 1  0.548   fold 2  0.541   fold 3  0.422   fold 4  0.422
+```
+
+That is the signature of a model fitting a regime that then ended — not an
+edge. The positive total return comes from two good folds in 2022–23 being
+larger than two bad ones in 2024–25. On 2,200 bars and four folds, that is
+noise with a direction.
 
 The one result worth a second look is **donchian on 4h**: Sharpe 0.52 against
 buy & hold's 0.33, on 66 trades, with a materially smaller drawdown (-41% vs
