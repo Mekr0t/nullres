@@ -1,0 +1,75 @@
+# BTC/USDT 4h WITH derivatives data — funding rates and open interest.
+#
+# This is the first config in the repo whose features are not all transforms of
+# OHLCV. Everything else has been ruled out (see docs/05-graveyard.md); if there
+# is an exploitable signal anywhere in this project, positioning data is the
+# most likely place for it to be.
+#
+# Start date is 2020-09 because that is when Binance's open-interest metrics
+# archive begins. Funding goes back to 2020-01, but a config that silently
+# drops eight months of rows to a NaN mask is a config that lies about its
+# sample, so the range is aligned to the binding constraint.
+#
+#     python -m tbot fetch --config configs/btc_4h_deriv.toml
+#
+# The metrics archive is published one file PER DAY, so the first fetch makes
+# ~1,900 requests. They run concurrently and cache one parquet per month; a
+# re-run is offline and instant.
+
+name = "btc_4h_deriv"
+strategies = ["sma_cross", "donchian", "ml_direction", "ml_meta"]
+out_dir = "reports"
+
+[data]
+symbol = "BTCUSDT"
+interval = "4h"
+start = "2020-09"
+end = "2025-12"
+cache_dir = "data"
+source = "binance"
+funding = true
+metrics = true
+
+[label]
+kind = "triple_barrier"
+horizon = 126             # ~3 weeks; see `tbot budget`
+vol_window = 60
+upper = 1.5
+lower = 1.5
+
+[split]
+scheme = "expanding"
+n_folds = 5
+min_train = 2500
+embargo = 126
+
+[model]
+kind = "hgb"
+max_iter = 300
+learning_rate = 0.05
+max_depth = 4
+l2 = 1.0
+min_samples_leaf = 100
+seed = 0
+
+[cost]
+fee_bps = 10.0
+slippage_bps = 2.0
+
+[sizing]
+long_entry = 0.56
+long_exit = 0.50
+short_entry = 0.44
+short_exit = 0.50
+allow_short = true
+min_hold = 84
+max_leverage = 1.0
+vol_target = 0.0
+
+[params.donchian]
+entry = 96
+exit = 48
+
+[params.sma_cross]
+fast = 50
+slow = 200

@@ -136,14 +136,68 @@ mistakes it for a finding.
 
 ---
 
+## Funding rates and open interest — NOT dead
+
+**Status:** the first hypothesis here that survived its first contact with
+evidence. That is not the same as alive.
+
+The one direction that brings information the price series does not contain.
+Binance publishes 8-hourly funding rates (from 2020-01) and open-interest /
+positioning metrics (daily archives, BTCUSDT from 2020-09).
+
+**What the evidence says.** A matched-sample ablation — identical rows, folds
+and benchmark, only the feature set differing:
+
+```
+  with derivatives      0.5455  0.5303  0.5368  0.5115  0.5343
+                        mean 0.5317   std 0.0126   folds above 0.5: 5/5
+  without derivatives   0.5014  0.4973  0.5224  0.5164  0.5619
+                        mean 0.5199   std 0.0257   folds above 0.5: 4/5
+
+  per-fold difference   +0.0441  +0.0330  +0.0144  -0.0049  -0.0276
+  paired t-test: t = 0.92, p = 0.412
+```
+
+Reproduce: `python -m tbot ablate --config configs/btc_4h_deriv.toml`
+
+Three observations, in descending order of confidence:
+
+1. **`ls_accounts` — the long/short account ratio — is the single most
+   important feature in the model**, ahead of every OHLCV transform, and four
+   of the top ten are derivatives. That is new; nothing OHLCV-derived has ever
+   led that list except `vol_72`.
+2. **Consistency improved more than accuracy.** All five folds clear 0.5 with
+   the data versus four without, at half the variance. Mean AUC rises 0.0118.
+3. **It is not statistically significant** (p = 0.41 on five folds), and the
+   sign flips in two of them.
+
+**Funding rate itself carries almost nothing.** `funding`, `funding_ma_3` and
+`funding_ma_21` all rank at or below zero importance. The signal, such as it
+is, comes from *positioning* — who is long and how much — not from the price
+of carry. Worth knowing before spending more effort on funding transforms.
+
+**Do not read the Sharpe numbers.** The same ablation moves `ml_direction` from
+-0.68 to +0.43, which is not evidence of anything. At ~80 trades the equity
+curve is decided by which handful of positions landed. The AUCs above differ by
+one percentage point and are computed over 6,660 bars; the Sharpes differ by
+1.11 and are computed over 80 trades. Believe the first pair.
+
+**What it has NOT done.** It has not been through `tbot robust`. No parameter
+neighbourhood, no sub-period stability against buy & hold, no cross-symbol
+transfer — and that last test is what killed donchian and vol targeting, both
+of which looked at least this good beforehand. Metrics archives for ETH, SOL,
+BNB and XRP begin later than BTC's, so the transfer test needs its date range
+handled before it will mean anything.
+
+Until it clears that battery it is a lead, not a finding.
+
 ## Still open
 
 - **A better primary rule for `ml_meta`.** The meta-labeller currently filters a
   rule that is right 49.7% of the time. Filtering a coin flip yields a filtered
   coin flip.
-- **Data outside the price series.** Funding rates, open interest, order-book
-  imbalance, on-chain flows. The one direction not yet ruled out, and the only
-  one that brings genuinely new information.
+- **Order-book imbalance and on-chain flows.** The remaining sources of
+  genuinely new information, now that funding and open interest are in.
 - **Cross-sectional ranking.** "Which of these 50 assets outperforms the rest"
   is an easier question than "does this one go up", and it hedges the market
   move. Introduces survivorship bias as a live concern.

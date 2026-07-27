@@ -29,6 +29,11 @@ class DataConfig:
     end: str = "2025-12"
     cache_dir: str = "data"
     source: str = "binance"          # binance | synthetic
+    # Join Binance USD-M futures funding rates / open-interest metrics onto the
+    # bars. The only information in this repo that is not a transform of OHLCV.
+    # Ignored for synthetic data, which has no derivatives market.
+    funding: bool = False
+    metrics: bool = False
 
     @property
     def bars_per_year(self) -> int:

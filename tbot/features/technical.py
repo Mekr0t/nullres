@@ -65,10 +65,14 @@ def _zscore(s: pd.Series, w: int) -> pd.Series:
     return (s - s.rolling(w).mean()) / s.rolling(w).std()
 
 
-def build_features(df: pd.DataFrame) -> pd.DataFrame:
+def build_features(df: pd.DataFrame, funding=None, metrics=None) -> pd.DataFrame:
     """Return the feature matrix, indexed identically to `df`.
 
     Leading rows are NaN until the longest window fills; callers drop them.
+
+    `funding` and `metrics` are optional Binance futures frames. When supplied,
+    derivative features are appended — see `features/derivatives.py`, where the
+    point-in-time join is the part that matters.
     """
     f = pd.DataFrame(index=df.index)
     close, high, low = df["close"], df["high"], df["low"]
@@ -124,4 +128,10 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     f["hour"] = df.index.hour.astype("float64")
     f["dow"] = df.index.dayofweek.astype("float64")
 
-    return f.replace([np.inf, -np.inf], np.nan)
+    f = f.replace([np.inf, -np.inf], np.nan)
+
+    if funding is not None or metrics is not None:
+        from tbot.features.derivatives import build_derivative_features
+
+        f = f.join(build_derivative_features(df, funding, metrics))
+    return f

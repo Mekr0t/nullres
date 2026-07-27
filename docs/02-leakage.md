@@ -56,6 +56,31 @@ has not happened yet.
 **Detection:** point-in-time check. `tests/test_audit.py` contains both the
 broken and the correct version of this join.
 
+### 3b. Joining an EXTERNAL series on the wrong instant
+
+The same class of bug, but sharper, and it arrived with funding rates and open
+interest. Every other feature in this repo derives from the bars themselves, so
+a lookahead had to be a visible `.shift(-1)`. Joining a separate time series
+fails differently — a join *direction* or a one-interval misalignment, neither
+of which reads as wrong.
+
+Three things have to be right at once:
+
+1. **The bar's close, not its open.** A bar indexed at `T` covers `[T, T+interval)`
+   and closes at `T+interval`. Joining on `T` silently discards a full bar of
+   information; joining on anything past `T+interval` is lookahead.
+2. **Strictly before.** A funding settlement stamped exactly at the close is
+   *simultaneous* with it. `allow_exact_matches=False`.
+3. **The auxiliary frame must be clipped to the bar range.** This is the
+   non-obvious one. `check_point_in_time` truncates the bars and recomputes —
+   but if the funding frame still holds future rows, a `direction="forward"`
+   join returns the same value either way and **the audit passes while the
+   feature reads tomorrow's funding**. Clipping makes truncating the bars also
+   truncate the auxiliary data, which restores the check.
+
+`tests/test_derivatives.py::test_forward_join_is_caught_by_the_audit` injects
+exactly that bug and asserts it is caught. Without point 3 it is not.
+
 ## 4. Overlapping labels crossing the train/test boundary
 
 If a label at bar `t` resolves at `t+500`, and the test window starts at

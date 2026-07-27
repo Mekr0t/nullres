@@ -15,6 +15,11 @@ out_dir = "reports"
 symbol = "SYNTH"
 interval = "1h"
 source = "synthetic"
+# Generated as pure noise, so the control runs the SAME 47-feature pipeline as
+# a live config. Without these the random-walk check would exercise only the
+# 32 OHLCV features, and a broken funding/OI join would never reach it.
+funding = true
+metrics = true
 
 [label]
 kind = "triple_barrier"

@@ -23,6 +23,52 @@ _FREQ = {"1m": "min", "5m": "5min", "15m": "15min", "30m": "30min",
          "1h": "h", "2h": "2h", "4h": "4h", "12h": "12h", "1d": "D"}
 
 
+def synthetic_funding(bars: pd.DataFrame, seed: int = 0) -> pd.DataFrame:
+    """Funding settlements every 8h, uncorrelated with future returns.
+
+    Exists so the null control exercises the SAME code path as a real run.
+    Without it the random-walk check runs on 32 features while the live config
+    runs on 47, and a broken funding join would never reach the one test whose
+    whole job is to catch fabricated edge.
+
+    The values are noise by construction, so any strategy that profits from
+    them on this data has found a bug in the join, not a signal.
+    """
+    rng = np.random.default_rng(seed + 101)
+    idx = pd.date_range(bars.index[0], bars.index[-1] + pd.Timedelta("8h"), freq="8h")
+    return pd.DataFrame(
+        {
+            "funding_rate": rng.normal(0.0001, 0.0003, len(idx)),
+            "funding_hours": np.full(len(idx), 8.0),
+        },
+        index=pd.DatetimeIndex(idx, name="ts"),
+    )
+
+
+def synthetic_metrics(bars: pd.DataFrame, seed: int = 0) -> pd.DataFrame:
+    """Open interest and positioning ratios, also pure noise.
+
+    Open interest is generated as a random walk with drift so it is
+    non-stationary like the real thing — that way the stationarity discipline
+    in `features/derivatives.py` is genuinely exercised.
+    """
+    rng = np.random.default_rng(seed + 202)
+    idx = pd.date_range(bars.index[0], bars.index[-1] + pd.Timedelta("1h"), freq="1h")
+    n = len(idx)
+    oi = 1e5 * np.exp(np.cumsum(rng.normal(0.0002, 0.01, n)))
+    return pd.DataFrame(
+        {
+            "open_interest": oi,
+            "oi_value": oi * 30_000,
+            "top_trader_accounts_ls": np.abs(rng.normal(2.5, 0.4, n)),
+            "top_trader_positions_ls": np.abs(rng.normal(1.2, 0.2, n)),
+            "all_accounts_ls": np.abs(rng.normal(2.0, 0.3, n)),
+            "taker_buy_sell_ratio": np.abs(rng.normal(1.0, 0.2, n)),
+        },
+        index=pd.DatetimeIndex(idx, name="ts"),
+    )
+
+
 def synthetic_bars(n: int = 40_000, seed: int = 0, interval: str = "1h",
                    sigma: float = 0.004, edge: float = 0.0,
                    start: str = "2020-01-01") -> pd.DataFrame:

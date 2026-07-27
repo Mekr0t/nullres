@@ -58,9 +58,16 @@ def check_point_in_time(bars: pd.DataFrame, builder=build_features,
     `build_features(bars).iloc[t]`, then the full-history version used data from
     after bar t. There is no way for that to be legitimate.
     """
+    if len(bars) < 50:
+        return Check("point-in-time features", False,
+                     f"only {len(bars)} bars — too few to probe meaningfully")
+
     full = builder(bars)
     rng = np.random.default_rng(seed)
-    lo = max(500, len(bars) // 10)
+    # Probe past the warmup so rolling windows have filled, but never past the
+    # end of a short series: a fixed 500-bar floor crashed on anything smaller.
+    warmup = min(500, len(bars) // 2)
+    lo = min(max(warmup, len(bars) // 10), len(bars) - 1)
     offenders: dict[str, float] = {}
 
     for t in rng.integers(lo, len(bars), size=probes):

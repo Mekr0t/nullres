@@ -78,6 +78,27 @@ python -m tbot run -c configs/btc_1h.toml --set sizing.min_hold=168
 
 ---
 
+## Current state of the research
+
+Every hypothesis tried so far is recorded in [docs/05-graveyard.md](docs/05-graveyard.md).
+Five are dead: next-bar direction, direction at any horizon, slower timeframes,
+donchian breakout, and volatility targeting.
+
+One is not. **Funding rates and open interest** — the only information here that
+is not a transform of OHLCV — produce a small, consistent, not-yet-significant
+improvement in a matched-sample ablation:
+
+```
+  with derivatives      mean AUC 0.5317   std 0.0126   folds above 0.5: 5/5
+  without derivatives   mean AUC 0.5199   std 0.0257   folds above 0.5: 4/5
+  paired t-test over 5 folds: t = 0.92, p = 0.412
+```
+
+The long/short account ratio is the most important single feature in the model,
+ahead of every price-derived one. Funding rate itself carries nothing. It has
+not yet been through `tbot robust`, which is what killed the previous two
+candidates, so it is a lead rather than a finding.
+
 ## The three rules everything else follows from
 
 1. **A feature at bar `t` may only use information available at the close of
@@ -98,7 +119,8 @@ tbot/
   costs.py         break-even arithmetic: run this before modelling
   audit.py         four mechanical leak detectors
   pipeline.py      bars -> features -> labels -> positions -> metrics
-  data/            Binance archives (cached) + synthetic null data
+  data/            Binance spot archives, USD-M futures funding / open
+                   interest, and synthetic null data
   features/        32 stationary, point-in-time technical features
   labels/          triple-barrier, vol-scaled forward return, next-bar sign
   validation/      purged + embargoed walk-forward, uniqueness weights

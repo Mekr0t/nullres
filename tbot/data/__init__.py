@@ -6,7 +6,8 @@ index, no duplicates. `load_bars` is the only entry point callers should need.
 """
 
 from tbot.data.binance import fetch_month, load_binance
-from tbot.data.synthetic import synthetic_bars
+from tbot.data.futures import load_funding, load_metrics
+from tbot.data.synthetic import synthetic_bars, synthetic_funding, synthetic_metrics
 
 OHLCV = ["open", "high", "low", "close", "volume", "trades"]
 
@@ -20,4 +21,33 @@ def load_bars(cfg):
     raise ValueError(f"unknown data source {cfg.source!r}")
 
 
-__all__ = ["load_bars", "load_binance", "fetch_month", "synthetic_bars", "OHLCV"]
+def load_auxiliary(cfg, verbose: bool = True, bars=None):
+    """Return (funding, metrics), either of which may be None.
+
+    For synthetic data the auxiliary frames are generated as pure noise rather
+    than skipped. That keeps the null control running the SAME feature pipeline
+    as a live config — otherwise the random-walk check would exercise 32
+    features while the real run uses 47, and a broken funding join would never
+    reach the one test designed to catch fabricated edge.
+    """
+    if cfg.source == "synthetic":
+        if bars is None or not (cfg.funding or cfg.metrics):
+            return None, None
+        return (
+            synthetic_funding(bars) if cfg.funding else None,
+            synthetic_metrics(bars) if cfg.metrics else None,
+        )
+    if cfg.source != "binance":
+        return None, None
+    funding = (load_funding(cfg.symbol, cfg.start, cfg.end, cfg.cache_dir, verbose)
+               if cfg.funding else None)
+    metrics = (load_metrics(cfg.symbol, cfg.start, cfg.end, cfg.cache_dir,
+                            verbose=verbose) if cfg.metrics else None)
+    return funding, metrics
+
+
+__all__ = [
+    "load_bars", "load_auxiliary", "load_binance", "fetch_month",
+    "load_funding", "load_metrics", "synthetic_bars", "synthetic_funding",
+    "synthetic_metrics", "OHLCV",
+]

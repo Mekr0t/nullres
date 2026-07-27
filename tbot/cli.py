@@ -39,9 +39,20 @@ def _banner(text: str) -> None:
 
 
 def cmd_fetch(cfg, args) -> int:
+    from tbot.data import load_auxiliary
+
     bars = load_bars(cfg.data)
     print(f"\n{len(bars):,} bars cached in {cfg.data.cache_dir}/")
     print(bars.head(3).to_string())
+
+    if cfg.data.funding or cfg.data.metrics:
+        print("\nfutures auxiliary data")
+        funding, metrics = load_auxiliary(cfg.data)
+        for name, frame in (("funding", funding), ("metrics", metrics)):
+            if frame is not None:
+                print(f"\n{name}: {len(frame):,} rows, "
+                      f"columns {list(frame.columns)}")
+                print(frame.head(3).to_string())
     return 0
 
 
@@ -53,7 +64,18 @@ def cmd_run(cfg, args) -> int:
           f"cost={cfg.cost.fee_bps + cfg.cost.slippage_bps:.0f}bps/side "
           f"min_hold={cfg.sizing.min_hold}")
 
-    results = run_pipeline(cfg)
+    if args.ablate:
+        from tbot.pipeline import ablate
+
+        ctx = prepare(cfg)
+        before = ctx.features.shape[1]
+        ctx = ablate(ctx, args.ablate)
+        print(f"\nABLATION: dropped {before - ctx.features.shape[1]} "
+              f"{args.ablate} features ({before} -> {ctx.features.shape[1]}). "
+              f"Rows, splits and benchmark are unchanged.")
+        results = run_pipeline(cfg, ctx=ctx)
+    else:
+        results = run_pipeline(cfg)
 
     _banner("RESULTS (out-of-sample only)")
     print(format_table(results))
@@ -87,7 +109,15 @@ def cmd_audit(cfg, args) -> int:
     checks = []
 
     print("\n1/4 point-in-time feature check (recomputing on truncated history)")
-    checks.append(audit_mod.check_point_in_time(ctx.bars))
+    # Rebuild through the same auxiliary data the pipeline used, so the
+    # funding/OI join is covered by the truncation test rather than exempt.
+    from tbot.data import load_auxiliary
+    from tbot.features import build_features as _bf
+
+    funding, metrics = load_auxiliary(cfg.data, verbose=False, bars=ctx.bars)
+    checks.append(audit_mod.check_point_in_time(
+        ctx.bars, builder=lambda d: _bf(d, funding=funding, metrics=metrics)
+    ))
 
     print("2/4 single-feature AUC against the label")
     checks.append(audit_mod.check_label_leakage(ctx.features, ctx.label["y"]))
@@ -235,6 +265,57 @@ def cmd_robust(cfg, args) -> int:
     return 0
 
 
+def cmd_ablate(cfg, args) -> int:
+    """Does a feature group improve DISCRIMINATION, on matched samples?
+
+    Sharpe cannot answer this. With ~80 trades an equity curve is decided by
+    which handful of positions happened to land, and it will swing from -0.68
+    to +0.43 on feature sets whose AUC differs by one percentage point. AUC
+    uses every labelled bar, so it is the metric that can distinguish "the
+    model knows more" from "the model got luckier".
+    """
+    from scipy import stats as sps
+
+    from tbot.models.classifier import fit_predict_walk_forward
+    from tbot.pipeline import ablate
+
+    group = args.ablate or "derivatives"
+    _banner(f"ABLATION: {group} on {cfg.name}")
+
+    full = prepare(cfg, verbose=False)
+    reduced = ablate(prepare(cfg, verbose=False), group)
+    t_end = full.label["t_end"].to_numpy(dtype=np.int64)
+    y = full.label["y"]
+
+    print(f"\n{len(full.features):,} rows, identical folds and benchmark. "
+          f"{full.features.shape[1]} features vs {reduced.features.shape[1]}.\n")
+
+    scores = {}
+    for name, X in (("with " + group, full.features),
+                    ("without " + group, reduced.features)):
+        _, reports = fit_predict_walk_forward(
+            X, y, t_end, cfg.split, cfg.model, verbose=False
+        )
+        aucs = np.array([r["auc"] for r in reports])
+        scores[name] = aucs
+        print(f"  {name:<24}" + "  ".join(f"{a:.4f}" for a in aucs))
+        print(f"  {'':<24}mean {aucs.mean():.4f}   std {aucs.std(ddof=1):.4f}   "
+              f"folds above 0.5: {(aucs > 0.5).sum()}/{len(aucs)}\n")
+
+    a, b = list(scores.values())
+    diff = a - b
+    print(f"  {'per-fold difference':<24}" + "  ".join(f"{d:+.4f}" for d in diff))
+    print(f"  {'':<24}mean {diff.mean():+.4f}")
+
+    t_stat, p_value = sps.ttest_rel(a, b)
+    print(f"\n  paired t-test over {len(a)} folds: t = {t_stat:.2f}, p = {p_value:.3f}")
+    if p_value > 0.05:
+        print("  NOT significant. With this few folds that is the expected outcome")
+        print("  even for a real effect — it is a reason to gather more evidence,")
+        print("  not a reason to believe the difference is zero.")
+    return 0
+
+
 def cmd_features(cfg, args) -> int:
     from tbot.models.classifier import feature_importance
 
@@ -246,9 +327,21 @@ def cmd_features(cfg, args) -> int:
         ctx.label["t_end"].to_numpy(dtype=np.int64),
         cfg.split, cfg.model,
     )
+
+    from tbot.features import DERIVATIVE_DOC
+
+    derived = set(DERIVATIVE_DOC)
     for name, value in imp.items():
         bar = "#" * max(0, int(value * 400))
-        print(f"  {name:<14}{value:>8.4f}  {bar}")
+        # Mark features that came from funding / open interest, so it is
+        # immediately visible whether the new data earned its place.
+        tag = "*" if name in derived else " "
+        print(f" {tag}{name:<22}{value:>8.4f}  {bar}")
+
+    if derived & set(imp.index):
+        top = [n for n in imp.index[:10] if n in derived]
+        print(f"\n  * = derivatives (funding / open interest). "
+              f"{len(top)} of the top 10.")
     print("\nValues near zero mean the feature carried nothing out of sample.")
     print("Most of them will be near zero. That is the normal result.")
     return 0
@@ -261,6 +354,7 @@ COMMANDS = {
     "audit": cmd_audit,
     "sweep": cmd_sweep,
     "robust": cmd_robust,
+    "ablate": cmd_ablate,
     "features": cmd_features,
 }
 
@@ -273,6 +367,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--strategy", "-s", default="ml_meta",
                         help="sweep: which strategy to sweep")
     parser.add_argument("--save", action="store_true", help="run: write metrics JSON")
+    parser.add_argument("--ablate", default=None, metavar="GROUP",
+                        help="run: drop a feature group (e.g. 'derivatives') "
+                             "after row alignment, for a matched-sample A/B")
     parser.add_argument("--symbols", default="ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT",
                         help="robust: symbols for the cross-symbol transfer test")
     parser.add_argument("--set", action="append", default=[], metavar="a.b=v",

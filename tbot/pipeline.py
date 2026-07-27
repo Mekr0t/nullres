@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 
 from tbot.backtest import backtest, summarize
-from tbot.data import load_bars
+from tbot.data import load_auxiliary, load_bars
 from tbot.features import build_features
 from tbot.labels import build_label
 from tbot.strategies import Context, build as build_strategy
@@ -22,7 +22,8 @@ from tbot.validation import describe_folds, purged_walk_forward, remap_t_end
 def prepare(cfg, verbose: bool = True) -> Context:
     """Load data, build features and labels, align them, and mark the OOS window."""
     bars = load_bars(cfg.data)
-    features = build_features(bars)
+    funding, metrics = load_auxiliary(cfg.data, verbose=verbose, bars=bars)
+    features = build_features(bars, funding=funding, metrics=metrics)
     label = build_label(bars, cfg.label)
 
     # Drop the warmup period where rolling windows have not filled, plus any bar
@@ -64,6 +65,33 @@ def prepare(cfg, verbose: bool = True) -> Context:
 
     return Context(bars=bars, features=features, label=label, cfg=cfg,
                    oos_mask=oos_mask, verbose=verbose)
+
+
+def ablate(ctx: Context, group: str) -> Context:
+    """Drop a feature group AFTER row alignment, for a matched-sample ablation.
+
+    Turning the data off in the config is not a controlled comparison: the
+    derivative features carry their own warmup (`oi_z` needs 168 bars), so
+    disabling them changes which rows survive the NaN mask, which changes the
+    fold boundaries and the out-of-sample window. The two runs then differ in
+    their samples as well as their features, and even buy & hold moves.
+
+    This drops the columns from an already-prepared context, so the rows, the
+    splits and the benchmark are byte-identical and the only variable is the
+    feature set.
+    """
+    from tbot.features import DERIVATIVE_DOC
+
+    groups = {"derivatives": set(DERIVATIVE_DOC)}
+    if group not in groups:
+        raise ValueError(f"unknown feature group {group!r}; choose from {sorted(groups)}")
+
+    drop = [c for c in ctx.features.columns if c in groups[group]]
+    if not drop:
+        raise ValueError(f"no {group} features present to ablate")
+    ctx.features = ctx.features.drop(columns=drop)
+    ctx.diagnostics.clear()          # cached predictions are now stale
+    return ctx
 
 
 def coherence_warnings(cfg, bars: pd.DataFrame) -> list[str]:
