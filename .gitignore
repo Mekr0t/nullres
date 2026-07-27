@@ -4,10 +4,13 @@ __pycache__/
 .pytest_cache/
 .ipynb_checkpoints/
 
-# Cached market data — reproducible via `tbot fetch`, do not commit
-data/
-!data/.gitkeep
+# Cached market data — reproducible via `tbot fetch`, do not commit.
+# The leading slash anchors these to the repo root. Without it, git matches the
+# pattern at ANY depth: a bare `data/` also excluded `tbot/data/`, quietly
+# keeping three source files out of every commit until CI failed on them.
+/data/
+!/data/.gitkeep
 
 # Run outputs
-reports/
+/reports/
 *.joblib
