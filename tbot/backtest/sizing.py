@@ -44,6 +44,30 @@ def apply_min_hold(desired: pd.Series, min_hold: int) -> pd.Series:
     return pd.Series(out, index=desired.index)
 
 
+def apply_rebalance_band(target: pd.Series, band: float) -> pd.Series:
+    """Only trade when the target drifts more than `band` away from what's held.
+
+    A continuously-varying target position is a continuously-varying trade. A
+    naive vol-target on BTC 4h drifts ~0.9% of notional per bar, which compounds
+    to ~20x annual turnover and ~2.4%/yr in fees — enough to erase the benefit
+    it was built to deliver.
+
+    A no-trade band converts that into a handful of discrete rebalances. It is
+    the same idea as hysteresis in `signal_to_position`, applied to size rather
+    than to direction.
+    """
+    if band <= 0:
+        return target
+    t = target.to_numpy(dtype="float64")
+    out = np.zeros(len(t))
+    current = 0.0
+    for i in range(len(t)):
+        if np.isfinite(t[i]) and abs(t[i] - current) > band:
+            current = t[i]
+        out[i] = current
+    return pd.Series(out, index=target.index)
+
+
 def apply_vol_target(pos: pd.Series, sigma: pd.Series, cfg,
                      bars_per_year: int) -> pd.Series:
     """Scale exposure so annualised risk, not notional, is held constant."""

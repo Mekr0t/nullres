@@ -37,6 +37,8 @@ DEFAULT_GRIDS = {
     "donchian": {"entry": [48, 72, 96, 120, 168], "exit": [24, 36, 48, 72]},
     "sma_cross": {"fast": [12, 24, 50, 100], "slow": [100, 150, 200, 300]},
     "mean_reversion": {"window": [24, 48, 72, 120], "entry": [1.5, 2.0, 2.5]},
+    "vol_target": {"target": [0.35, 0.40, 0.50, 0.60, 0.75],
+                   "vol_window": [15, 30, 60, 120]},
 }
 
 
@@ -134,7 +136,8 @@ def cross_symbol(cfg, strategy: str, symbols: list[str]) -> pd.DataFrame:
 
 
 def verdict(neighbourhood: pd.DataFrame, stability: pd.DataFrame,
-            transfer: pd.DataFrame) -> tuple[bool, list[str]]:
+            transfer: pd.DataFrame,
+            benchmark_sharpe: float | None = None) -> tuple[bool, list[str]]:
     """Turn the three tables into a pass/fail with reasons.
 
     The thresholds are deliberately lenient. They are meant to catch strategies
@@ -153,9 +156,16 @@ def verdict(neighbourhood: pd.DataFrame, stability: pd.DataFrame,
             f"A real effect is not this sensitive to its own parameters."
         )
     else:
+        # "Positive" is a low bar. Without this clause the note reads as a pass
+        # even when the entire grid sits below the thing you'd have done anyway.
+        context = ""
+        if benchmark_sharpe is not None:
+            beat = float((neighbourhood["sharpe"] > benchmark_sharpe).mean())
+            context = (f", but only {beat:.0%} beat buy & hold "
+                       f"({benchmark_sharpe:.2f})")
         notes.append(
             f"neighbourhood ok: {frac:.0%} of combinations positive, "
-            f"median sharpe {median:.2f}"
+            f"median sharpe {median:.2f}{context}"
         )
 
     if stability.empty:

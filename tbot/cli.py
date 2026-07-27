@@ -221,7 +221,8 @@ def cmd_robust(cfg, args) -> int:
             print(f"  {row['symbol']:<12}{row['total_return']:>10.1%}"
                   f"{row['sharpe']:>9.2f}{row['vs_hold']:>9.2f}{row['n_trades']:>8,}")
 
-    ok, notes = verdict(grid, stability, transfer)
+    bench = float(stability["sharpe_hold"].mean()) if not stability.empty else None
+    ok, notes = verdict(grid, stability, transfer, benchmark_sharpe=bench)
     _banner("VERDICT: " + ("SURVIVED" if ok else "KILLED"))
     for note in notes:
         print(f"  {note}")

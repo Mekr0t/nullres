@@ -133,6 +133,7 @@ Out-of-sample, BTCUSDT, purged walk-forward, 12bps/side, 2020-12 to 2025-12.
 | donchian | 144.4% | **0.52** | -40.7% | 66 | 7.6% |
 | buy & hold | 148.6% | 0.33 | -77.0% | 2 | 0.2% |
 | sma_cross | 74.8% | 0.30 | -56.2% | 62 | 7.2% |
+| vol_target | 63.6% | 0.21 | -73.1% | 274 | 5.2% |
 | ml_direction | -29.2% | -0.15 | -49.4% | 112 | 16.5% |
 | ml_meta | -73.3% | -0.66 | -79.7% | 113 | 13.8% |
 
@@ -237,3 +238,5 @@ anything real, forward paper-trade on bars the model has never seen.
 - [02 — Leakage catalogue](docs/02-leakage.md)
 - [03 — Costs and execution](docs/03-costs.md)
 - [04 — Labels and strategies](docs/04-labels-and-strategies.md)
+- [05 — The graveyard](docs/05-graveyard.md) — every hypothesis killed so far,
+  and why. Read this before proposing a new one.

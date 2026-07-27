@@ -13,6 +13,7 @@ from tbot.strategies.rules import (
     DonchianBreakout,
     MeanReversionZ,
     SMACross,
+    VolTargetHold,
 )
 
 REGISTRY: dict[str, type[Strategy]] = {
@@ -20,6 +21,7 @@ REGISTRY: dict[str, type[Strategy]] = {
     "sma_cross": SMACross,
     "donchian": DonchianBreakout,
     "mean_reversion": MeanReversionZ,
+    "vol_target": VolTargetHold,
     "ml_direction": MLDirection,
     "ml_meta": MLMeta,
 }

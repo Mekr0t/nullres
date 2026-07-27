@@ -10,6 +10,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from tbot.backtest.sizing import apply_rebalance_band
 from tbot.strategies.base import Context, mask_to_oos
 
 
@@ -66,6 +67,52 @@ class DonchianBreakout:
                 current = 0.0
             state[i] = current
         return mask_to_oos(pd.Series(state, index=close.index), ctx)
+
+
+class VolTargetHold:
+    """Always long, but sized so that RISK is constant rather than notional.
+
+    This strategy makes no directional claim at all. It exists because of a
+    measured asymmetry in the data:
+
+        lag-1 autocorrelation of returns      -0.029    (noise)
+        lag-1 autocorrelation of |returns|    +0.227    (strong)
+        lag-1 autocorrelation of 30-bar vol   +0.992    (near-deterministic)
+
+    Direction is unpredictable; volatility is extremely persistent. So rather
+    than guessing which way the market goes, hold it continuously and vary the
+    size by 1/sigma — cutting exposure when the market is violent and restoring
+    it when it calms.
+
+    Note what this can and cannot do. It does not improve expected return; a
+    lower-volatility path with the same drift compounds better, but the edge
+    comes from risk management, not prediction. Judge it on Sharpe and
+    drawdown, and expect total return at or slightly below buy & hold.
+
+    `max_leverage=1.0` by default, so in calm regimes it is simply long and
+    never borrows. That makes it deliverable in a spot account with no margin.
+    """
+
+    name = "vol_target"
+
+    def __init__(self, target: float = 0.50, vol_window: int = 30,
+                 band: float = 0.10, max_leverage: float = 1.0):
+        self.target = target
+        self.vol_window = vol_window
+        self.band = band
+        self.max_leverage = max_leverage
+
+    def positions(self, ctx: Context) -> pd.Series:
+        logret = np.log(ctx.bars["close"]).diff()
+        # Rolling stdev at bar t uses bars <= t only.
+        sigma = logret.rolling(self.vol_window).std()
+        annualised = sigma * np.sqrt(ctx.cfg.data.bars_per_year)
+
+        with np.errstate(divide="ignore", invalid="ignore"):
+            raw = (self.target / annualised).replace([np.inf, -np.inf], np.nan)
+        raw = raw.clip(0.0, self.max_leverage).fillna(0.0)
+
+        return mask_to_oos(apply_rebalance_band(raw, self.band), ctx)
 
 
 class MeanReversionZ:

@@ -5,7 +5,8 @@
 # 1h it should work better here; if it ONLY works at 1h, be suspicious.
 
 name = "btc_4h"
-strategies = ["sma_cross", "donchian", "mean_reversion", "ml_direction", "ml_meta"]
+strategies = ["sma_cross", "donchian", "mean_reversion", "vol_target",
+              "ml_direction", "ml_meta"]
 out_dir = "reports"
 
 # Rule parameters live here so a result can be reproduced from the config alone.
@@ -18,6 +19,15 @@ exit = 48
 [params.sma_cross]
 fast = 50
 slow = 200
+
+# Targets ~50% annualised vol against BTC's realised ~55-70%, so mean exposure
+# lands near buy & hold's and the Sharpe comparison is like-for-like rather
+# than a comparison of two different leverage levels.
+[params.vol_target]
+target = 0.50
+vol_window = 30
+band = 0.10
+max_leverage = 1.0
 
 [data]
 symbol = "BTCUSDT"
