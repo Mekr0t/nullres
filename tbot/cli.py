@@ -326,6 +326,77 @@ def cmd_ablate(cfg, args) -> int:
     return 0
 
 
+def cmd_xsec(cfg, args) -> int:
+    """Cross-sectional long/short on a panel of symbols."""
+    from tbot.backtest.metrics import by_period, format_table, summarize
+    from tbot.crosssec import (
+        UNIVERSE_2021_12, backtest_panel, benchmarks,
+        fit_predict_panel, load_panel, panel_positions,
+    )
+
+    symbols = ([s.strip() for s in args.symbols.split(",") if s.strip()]
+               if args.symbols_given else UNIVERSE_2021_12)
+
+    _banner(f"CROSS-SECTIONAL: {len(symbols)} symbols, {cfg.data.interval}")
+    print("universe fixed as of 2021-12, NOT chosen from today's survivors\n")
+
+    panel = load_panel(cfg, symbols)
+    print(f"\n{len(panel.times):,} timestamps | {panel.features.shape[1]} ranked "
+          f"features | {len(panel.features):,} panel rows")
+    print(f"base rate {panel.y.mean():.4f} "
+          f"(balanced by construction — half the universe beats the median)")
+    if panel.delisted:
+        for sym, last in panel.delisted.items():
+            print(f"  DELISTED: {sym} last traded {last:%Y-%m-%d} — held to the end")
+    else:
+        print("  WARNING: no delisted symbols in this universe. If that is not")
+        print("  deliberate, the result is survivorship-biased.")
+
+    print("\nwalk-forward fit (folds split on TIME; all symbols move together)")
+    proba, reports = fit_predict_panel(panel, cfg)
+    aucs = np.array([r["auc"] for r in reports])
+    print(f"\n  mean AUC {np.nanmean(aucs):.4f}   "
+          f"folds above 0.5: {(aucs > 0.5).sum()}/{len(aucs)}")
+
+    # Every book is judged on the SAME window the model was scored on.
+    oos_times = pd.DatetimeIndex(
+        proba.dropna().index.get_level_values("ts").unique()
+    ).sort_values()
+    print(f"  out-of-sample window: {oos_times[0]:%Y-%m-%d} .. "
+          f"{oos_times[-1]:%Y-%m-%d} ({len(oos_times):,} bars)")
+
+    results = {}
+    for name, result in benchmarks(panel, cfg.cost, oos_times,
+                                   rebalance=args.rebalance).items():
+        results[name] = summarize(result, cfg.data.bars_per_year)
+
+    stability = None
+    ks = (args.top_k,) if args.top_k else (2, 3, 4)
+    for k in ks:
+        positions = panel_positions(proba, panel, top_k=k, rebalance=args.rebalance)
+        result = backtest_panel(positions, panel, cfg.cost)
+        results[f"longshort_k{k}"] = summarize(result, cfg.data.bars_per_year)
+        if stability is None:
+            stability = by_period(result, cfg.data.bars_per_year)
+            stability_k = k
+
+    _banner("RESULTS")
+    print(format_table(results))
+
+    if stability is not None and not stability.empty:
+        print(f"\nper-year (k={stability_k}):")
+        print(f"  {'year':<8}{'total':>10}{'sharpe':>9}{'trades':>8}")
+        for _, row in stability.iterrows():
+            print(f"  {row['period']:<8}{row['total_return']:>10.1%}"
+                  f"{row['sharpe']:>9.2f}{row['n_trades']:>8,}")
+
+    print("\nRead this against static_vs_alts, not equal_weight. A model that")
+    print("only learned 'the lowest-volatility member outperforms' has learned")
+    print("long-BTC/short-alts under another name — and that book needs no model")
+    print("and three trades. Beating equal_weight is not evidence of anything.")
+    return 0
+
+
 def cmd_features(cfg, args) -> int:
     from tbot.models.classifier import feature_importance
 
@@ -365,6 +436,7 @@ COMMANDS = {
     "sweep": cmd_sweep,
     "robust": cmd_robust,
     "ablate": cmd_ablate,
+    "xsec": cmd_xsec,
     "features": cmd_features,
 }
 
@@ -382,12 +454,19 @@ def main(argv: list[str] | None = None) -> int:
                              "after row alignment, for a matched-sample A/B")
     parser.add_argument("--symbols", default="ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT",
                         help="robust: symbols for the cross-symbol transfer test")
+    parser.add_argument("--top-k", type=int, default=None,
+                        help="xsec: symbols long and short per side")
+    parser.add_argument("--rebalance", type=int, default=42,
+                        help="xsec: bars between book rebalances (turnover control)")
     parser.add_argument("--transfer-start", default=None, metavar="YYYY-MM",
                         help="robust: force a common start date across symbols "
                              "(auxiliary archives begin at different dates)")
     parser.add_argument("--set", action="append", default=[], metavar="a.b=v",
                         help="override a config value, e.g. --set sizing.min_hold=12")
     args = parser.parse_args(argv)
+
+    # xsec defaults to the fixed 2021-12 universe unless symbols are given.
+    args.symbols_given = any(a.startswith("--symbols") for a in (argv or sys.argv[1:]))
 
     cfg = load_config(args.config)
     for override in args.set:

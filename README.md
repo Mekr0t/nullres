@@ -81,9 +81,26 @@ python -m tbot run -c configs/btc_1h.toml --set sizing.min_hold=168
 ## Current state of the research
 
 Every hypothesis tried so far is recorded in [docs/05-graveyard.md](docs/05-graveyard.md).
-**No tradable edge has been found.** Six lines of attack are dead: next-bar
+**No tradable edge has been found.** Seven lines of attack are dead: next-bar
 direction, direction at any horizon, slower timeframes, donchian breakout,
-volatility targeting, and machine learning on derivatives data.
+volatility targeting, machine learning on derivatives data, and cross-sectional
+long/short.
+
+The last is the most instructive. It produced the **highest AUC in the project
+(0.5443)**, verified clean — shuffled labels give 0.4970, and the signal
+survives removing both delisted symbols. Then it lost to a book with no model:
+
+```
+  book                 total   sharpe   max dd  t-stat  trades
+  static_vs_alts      219.6%     0.78   -41.8%    1.57       3
+  btc_only            227.9%     0.71   -34.7%    1.44       2
+  longshort_k2        161.5%     0.50   -78.6%    1.01     166
+```
+
+Long BTC, short everything else, rebalance never. Three trades, and it beats the
+model on return, Sharpe, drawdown and turnover at once. **A model can have
+genuine, verifiable skill and still be worthless.** Always build the dumbest
+strategy that could explain your result and check that you beat it.
 
 The last one is worth stating precisely, because the data and the strategy gave
 opposite answers. **Funding rates and open interest do carry information** —

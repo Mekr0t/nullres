@@ -1,0 +1,70 @@
+# Cross-sectional long/short on the December-2021 crypto universe.
+#
+# The one formulation the graveyard has not ruled out. It asks "which of these
+# assets outperforms the others" rather than "does this asset go up", which
+# removes the market move from the bet and gives a label that is balanced in
+# every regime.
+#
+# Two things make this config different from every other one here:
+#
+#   PERPETUAL FUTURES.  A long/short book cannot be run on spot — you cannot
+#   short it. Bars come from USD-M perps, and the 8-hourly funding rate is
+#   charged on every position held.
+#
+#   SURVIVORSHIP.  The universe is frozen as it looked in December 2021 and
+#   includes LUNAUSDT, which went to zero in May 2022 and was delisted. Picking
+#   today's liquid symbols would be a test of "assets that survived" and would
+#   produce a beautiful, meaningless result.
+#
+#     python -m tbot xsec --config configs/xsec_4h.toml
+
+name = "xsec_4h"
+out_dir = "reports"
+
+[data]
+symbol = "BTCUSDT"        # panel members come from crosssec.UNIVERSE_2021_12
+interval = "4h"
+start = "2021-12"         # the common start for open-interest metrics
+end = "2025-12"
+cache_dir = "data"
+source = "binance"
+funding = true
+metrics = true
+
+[label]
+# Relative to the cross-sectional median, so the horizon is about how long a
+# ranking stays valid rather than about clearing a single asset's cost.
+kind = "triple_barrier"   # unused by xsec; the panel builds its own label
+horizon = 42              # ~1 week at 4h
+vol_window = 60
+upper = 1.5
+lower = 1.5
+
+[split]
+scheme = "expanding"
+n_folds = 5
+min_train = 2000          # in TIMESTAMPS, not panel rows
+embargo = 42
+
+[model]
+kind = "hgb"
+max_iter = 300
+learning_rate = 0.05
+max_depth = 4
+l2 = 1.0
+min_samples_leaf = 200
+seed = 0
+
+[cost]
+fee_bps = 5.0             # USD-M perp taker is cheaper than spot
+slippage_bps = 3.0        # but the alts in this universe are thinner
+
+[sizing]
+long_entry = 0.56
+long_exit = 0.50
+short_entry = 0.44
+short_exit = 0.50
+allow_short = true
+min_hold = 42
+max_leverage = 1.0
+vol_target = 0.0

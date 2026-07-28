@@ -233,6 +233,76 @@ rather than trade each independently), which is the natural use of a signal
 that says "the crowd is offside on X relative to Y" and does not require any
 single asset's signal to clear costs alone.
 
+## Cross-sectional long/short
+
+**Status:** dead — and the most instructive death here. The model has real,
+verified ranking skill and still loses to a book with no model and three trades.
+
+Rank an 11-symbol crypto universe and go long the top-k, short the bottom-k,
+dollar neutral. Universe frozen as of 2021-12 including LUNAUSDT and MATICUSDT,
+both later delisted. USD-M perps (you cannot short spot), funding charged.
+
+```bash
+python -m tbot xsec --config configs/xsec_4h.toml
+```
+
+**The skill is real.** Mean AUC **0.5443**, the highest in this project, with
+folds 3-5 at 0.573 / 0.590 / 0.551. Three checks, all passed:
+
+| check | result | reading |
+|---|---|---|
+| shuffled labels | AUC 0.4970 | not a leak |
+| survivors only | AUC 0.5518 | not just death-detection |
+| per-symbol accuracy | spread 0.093 | **skill is concentrated** |
+
+That last row is the crack. BTC scores 0.585, SOL 0.491. Cross-sectional ranks
+never name a symbol — but BTC is permanently the lowest-volatility,
+highest-open-interest member of this universe, so "rank 1 by low vol" and "BTC"
+are the same column. A model that learned the first has learned the second.
+
+**And the trivial version wins.** Out-of-sample 2022-10 to 2025-12:
+
+```
+  book                 total   sharpe   max dd  t-stat  trades
+  static_vs_alts      219.6%     0.78   -41.8%    1.57       3
+  btc_only            227.9%     0.71   -34.7%    1.44       2
+  longshort_k2        161.5%     0.50   -78.6%    1.01     166
+  equal_weight         15.0%     0.06   -57.7%    0.12       4
+```
+
+Long BTC, short everything else, rebalance never. Three trades. It beats the
+model on return, Sharpe, drawdown and turnover simultaneously. The ML book's
+per-year record is 2023 **-69.7%**, 2024 **+258.8%** — and a -78.6% drawdown on
+a book labelled "market neutral".
+
+**Lesson:** a model can have genuine, verifiable skill and still be worthless.
+0.544 AUC is real; 166 trades at 8bps and a two-name book turn it into
+underperformance. Always construct the dumbest strategy that could explain your
+result and check you beat it. Here the dumbest version was better.
+
+And note what `static_vs_alts` is *not*: at t = 1.57 it is not significant
+either, and BTC is its long leg only because we know how 2022-2025 ended. It is
+a floor a model must clear, not a strategy.
+
+### Two measurement bugs this exposed
+
+1. **Benchmarks were not restricted to the model's out-of-sample window.**
+   `equal_weight` ran from 2021-12 while the book only traded from 2022-10, so
+   it absorbed the entire bear market and reported **-83.4%**. Correctly masked
+   it is **+15.0%**. The strategy looked good for reasons that had nothing to
+   do with the strategy.
+2. **Delisting silently broke dollar-neutrality.** Zeroing a dead short leg
+   leaves the remainder net long — for up to a full rebalance period, at exactly
+   the moment the market is disorderly. A "market-neutral" book quietly becoming
+   directional is worse than a directional one, because nothing in the metrics
+   says so. `_neutralise` now rescales each side, or goes flat if a side dies.
+
+*Footnote on survivorship:* the machinery is correct but barely bound here.
+LUNAUSDT delisted 2022-05-13, before the first test fold opened, so it never
+entered the out-of-sample result at all. MATICUSDT (delisted 2024-09-11) did.
+A universe fixed in 2021-12 still cannot capture assets that were never listed
+on Binance perps, so this is *less* survivorship-biased, not unbiased.
+
 ## Still open
 
 - **A better primary rule for `ml_meta`.** The meta-labeller currently filters a
@@ -240,6 +310,10 @@ single asset's signal to clear costs alone.
   coin flip.
 - **Order-book imbalance and on-chain flows.** The remaining sources of
   genuinely new information, now that funding and open interest are in.
-- **Cross-sectional ranking.** "Which of these 50 assets outperforms the rest"
-  is an easier question than "does this one go up", and it hedges the market
-  move. Introduces survivorship bias as a live concern.
+- **A wider cross-section.** Eleven symbols gives a thin ranking and forces a
+  two-name book. A universe of 50+ would let the same 0.544 AUC express itself
+  through diversification rather than concentration, which is the specific
+  reason the k=2 book carried a -78.6% drawdown.
+- **Lower-cost execution.** Nearly every result here dies on turnover. Maker
+  rebates or a tighter-spread venue move the arithmetic in `tbot budget` more
+  than any modelling change has.
