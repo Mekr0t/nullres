@@ -15,6 +15,14 @@ What this engine does NOT model, and you should not forget: partial fills,
 order book depth (it assumes your size is small enough not to move the market),
 funding rates on perpetuals, exchange downtime, and the fact that slippage is
 worst exactly when your signal is strongest.
+
+One approximation worth naming: cost is subtracted in log space
+(`net = gross - turnover * rate`) although `rate` is a simple fraction. The
+exact charge is `log(1 - rate)`, which is very slightly larger. The gap is
+`rate^2/2` per unit turnover — about 3e-6 at 24bps, so under half a percent of
+equity even at a thousand round trips, and invisible at the turnover levels
+anything here survives. It flatters high-turnover strategies fractionally, which
+are the ones already dying by an order of magnitude.
 """
 
 from __future__ import annotations

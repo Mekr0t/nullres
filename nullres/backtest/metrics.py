@@ -94,13 +94,21 @@ def summarize(result, bars_per_year: int, n_trials: int = 1, mask=None) -> dict:
 
 def deflated_sharpe(sharpe: float, n_obs: int, bars_per_year: int,
                     n_trials: int = 1) -> float:
-    """Sharpe adjusted for the number of variants tried (Bailey & López de Prado).
+    """Sharpe minus the best you would expect to reach by luck at `n_trials`.
 
     Searching 100 strategy variants on pure noise yields a best-of-100 Sharpe
-    around 0.6 by luck alone. This subtracts the Sharpe you would expect to
-    reach by chance given `n_trials`, so the remainder is what needs explaining.
-    A deflated Sharpe at or below zero means: you found nothing, you just looked
+    around 0.6 by luck alone. This subtracts that, so the remainder is what
+    needs explaining. At or below zero means: you found nothing, you just looked
     a lot of times.
+
+    **Two honest caveats about what this is not.** It borrows the expected-
+    maximum term from Bailey & López de Prado's deflated Sharpe ratio, but it is
+    not their statistic: the DSR proper is a *probability* and incorporates the
+    skew and kurtosis of the return series, both of which are ignored here. And
+    it treats the trials as independent, which they are not — twenty-five cells
+    of one threshold sweep are nearly the same strategy, so the effective count
+    is lower than the nominal one and this over-deflates. That error is in the
+    conservative direction, which is the only reason it is tolerable.
     """
     if n_trials <= 1 or n_obs < 2:
         return float(sharpe)
@@ -146,6 +154,17 @@ def by_period(result, bars_per_year: int, mask=None, freq: str = "YE",
             continue
         if full_period_bars and len(chunk) < min_coverage * full_period_bars:
             continue
+
+        # A period the strategy sat out is not a period it performed badly in.
+        # If a handful of bars carry every non-zero return — typically one lone
+        # cost tick from a position change — that tick IS the period's entire
+        # variance, and annualising it yields a confident-looking Sharpe of
+        # -1.00 off a book that did nothing. `min_coverage` already guards the
+        # partial-period version of this; this guards the inactive one.
+        active = chunk[chunk.abs() > 1e-12]
+        if len(active) < max(2, 0.01 * len(chunk)):
+            continue
+
         trades = int((turnover.loc[chunk.index] > 1e-12).sum())
         rows.append({
             "period": str(period)[:4] if freq.startswith("Y") else str(period)[:10],

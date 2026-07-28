@@ -169,6 +169,12 @@ def count_trials(runs: list[RunRecord], prior: int = 0) -> int:
     """
     seen: dict[tuple[str, str], int] = {}
     for record in runs:
+        # Calibration is not exploration. `configs/null.toml` runs the pipeline
+        # on a random walk to prove the harness finds nothing; it tests no
+        # hypothesis about any market, and counting it would mean that
+        # verifying your instrument made every real result deflate harder.
+        if str(record.config.get("data.source", "")) == "synthetic":
+            continue
         key = (record.config_hash, record.command)
         declared = 1 if record.variants is None else max(record.variants, 1)
         seen[key] = max(seen.get(key, 0), declared)
@@ -239,12 +245,22 @@ def find_similar(cfg: Any, runs: list[RunRecord], max_distance: int = 3,
     This is the reason the machine layer exists. Nobody re-reads a 294-line
     markdown file before every experiment, so eighteen months from now the dead
     end gets re-run. A config comparison does not forget.
+
+    **A change of data is a change of experiment.** Counting every key equally
+    made `data.symbol: BTCUSDT -> DOGEUSDT` a distance of 1, identical to
+    `min_hold: 84 -> 85` — so testing a dead rule on a completely different
+    asset was flagged as re-treading a dead end, which it is not. Whatever
+    killed a rule on BTC is not evidence about SOL. Runs whose data differs are
+    therefore not near-misses at all, no matter how close the rest looks. The
+    warning has to stay rare or it gets ignored, which costs more than it saves.
     """
     hits = []
     for record in runs:
         if verdict and record.verdict != verdict:
             continue
         distance, differing = config_distance(cfg, record.config)
+        if any(k.startswith("data.") for k in differing):
+            continue
         if distance <= max_distance:
             hits.append((distance, differing, record))
     return sorted(hits, key=lambda h: h[0])

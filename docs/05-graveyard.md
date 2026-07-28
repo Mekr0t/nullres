@@ -302,8 +302,8 @@ folds 3-5 at 0.573 / 0.590 / 0.551. Three checks, all passed:
 
 | check | result | reading |
 |---|---|---|
-| shuffled labels | AUC 0.4970 | not a leak |
-| survivors only | AUC 0.5518 | not just death-detection |
+| shuffled labels | AUC 0.5042 | not a leak |
+| survivors only | AUC 0.5480 | not just death-detection |
 | per-symbol accuracy | spread 0.093 | **skill is concentrated** |
 
 That last row is the crack. BTC scores 0.585, SOL 0.491. Cross-sectional ranks
@@ -369,7 +369,21 @@ python -m nullres xsec --config configs/xsec_4h.toml --universe 2021-12 --top-n 
     --set data.metrics=false
 ```
 
-**Width worked, exactly as hypothesised.** AUC rose 0.5443 -> **0.5575**, all
+**The original width comparison was confounded, and I nearly published it.**
+The narrow panel carries 46 features; this one carries 37, because fetching
+open-interest metrics for 136 symbols is a multi-hour download and the run sets
+`--set data.metrics=false`. So "AUC rose 0.5443 -> 0.5575 because the universe
+got wider" was crediting width with a change that also stripped out nine
+features — including `ls_accounts`, which the derivatives section above calls
+the single most important feature in the model. The derivatives ablation was
+careful to match samples exactly; this comparison was not.
+
+Matched at 37 features on both sides, the narrow panel scores **0.5460**. So
+width is worth **+0.0115**, not the +0.0132 first claimed. The conclusion
+survives, slightly smaller. The lesson is that a confound can sit inside a
+result for months when the result agrees with what you expected.
+
+**Width worked, on the matched comparison.** AUC rose 0.5460 -> **0.5575**, all
 five folds above 0.5 and *rising* over time (0.552 -> 0.581). Max drawdown at
 k=15 is -43.8% against the narrow book's -67.9%. Diversification did its job.
 

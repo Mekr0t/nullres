@@ -210,6 +210,38 @@ def test_a_year_the_strategy_sat_flat_is_scored_not_dropped():
     assert row["excess_sharpe"] == pytest.approx(-row["sharpe_hold"])
 
 
+def test_a_barely_active_period_is_not_scored_as_a_loss():
+    """One cost tick is not a year's performance.
+
+    A period where the book was flat except for a single position change has
+    exactly one non-zero return — the fee. That tick is then the period's whole
+    variance, and annualising it produces a confident Sharpe of -1.00 for a
+    strategy that did nothing. Sibling of the partial-period bug `min_coverage`
+    already handles.
+    """
+    import numpy as np
+
+    from nullres.backtest.engine import backtest
+    from nullres.backtest.metrics import by_period
+    from nullres.config import CostConfig
+
+    idx = pd.date_range("2022-01-01", "2023-12-31", freq="4h")
+    opens = 100 * np.exp(np.cumsum(np.random.default_rng(3).normal(0, 0.01, len(idx))))
+    bars = pd.DataFrame({"open": opens, "high": opens * 1.01, "low": opens * 0.99,
+                         "close": opens, "volume": 1.0, "trades": 1.0}, index=idx)
+
+    # Long through 2022, then flat for all of 2023 apart from the exit itself.
+    pos = pd.Series(0.0, index=idx)
+    pos[pos.index.year == 2022] = 1.0
+    result = backtest(bars, pos, CostConfig(fee_bps=10.0, slippage_bps=2.0))
+
+    scored = by_period(result, bars_per_year=2_190)
+    assert "2022" in set(scored["period"])
+    assert "2023" not in set(scored["period"]), (
+        "a year whose only non-zero return is one fee must not be scored"
+    )
+
+
 def test_a_broadly_robust_strategy_survives():
     outcome, notes = verdict(
         grid_df([0.4, 0.5, 0.45, 0.6, 0.38]),
@@ -309,6 +341,67 @@ def test_empty_inputs_fail_closed():
     assert outcome == "KILLED"
     assert any("STABILITY FAIL" in n for n in notes)
     assert any("TRANSFER FAIL" in n for n in notes)
+
+
+def test_noise_field_test_uses_a_real_null_not_a_constant():
+    """`0.8 x expected` was a significance level with no argument behind it.
+
+    The flip count has a computable null — approximately Binomial(pairs,
+    2p(1-p)) — so "is this grid smoother than chance" is a question with an
+    actual test rather than a tunable constant.
+    """
+    from nullres.robustness import _is_noise_field
+
+    # 50% positive -> expected flip rate 0.50. A grid that flips at exactly the
+    # random rate carries no information, however many pairs it has.
+    assert _is_noise_field(0.5, 0.50, n_pairs=31)
+    # A perfectly smooth grid over the same pairs is decisively not random.
+    assert not _is_noise_field(0.5, 0.0, n_pairs=31)
+
+    # The measured derivatives case: 39% observed against 38% expected.
+    assert _is_noise_field(0.75, 0.39, n_pairs=31)
+
+    # Too few pairs to establish anything: the test must not claim "noise",
+    # because it could not have proven smoothness either. The weak-count branch
+    # of `verdict` is what catches these.
+    assert not _is_noise_field(0.5, 0.33, n_pairs=3)
+
+    # A 97%-positive grid can only flip ~6% of the time however it is arranged,
+    # so zero flips would not be significant and the test has no power. It must
+    # not condemn a strong result for having too few signs to shuffle.
+    assert not _is_noise_field(0.97, 0.06, n_pairs=31)
+
+
+def test_a_lucky_maximum_in_a_smooth_grid_is_not_a_pass():
+    """A cell towering over its own neighbours is the shape of a fitted parameter.
+
+    This needs no independence assumption: it asks where the headline sits
+    inside its own surface, not whether the surface samples anything.
+    """
+    from nullres.robustness import sign_flip_pairs, sign_flip_rate
+
+    # Smooth and all-positive, but one cell is wildly above the rest.
+    grid = smooth_grid([[0.10, 0.12, 0.11], [0.09, 2.40, 0.13], [0.11, 0.10, 0.12]])
+    flips = sign_flip_rate(grid, ["a", "b"])
+    pairs = sign_flip_pairs(grid, ["a", "b"])
+
+    outcome, notes = verdict(
+        grid,
+        stability_df([0.2, 0.3, 0.1, 0.25, 0.15]),
+        transfer_df([0.3, 0.4, 0.35]),
+        flip_rate=flips, flip_pairs=pairs,
+    )
+    assert outcome == "INCONCLUSIVE"
+    assert any("NEIGHBOURHOOD INCONCLUSIVE" in n and "interquartile" in n
+               for n in notes)
+
+
+def test_sign_flip_pairs_counts_the_denominator():
+    from nullres.robustness import sign_flip_pairs
+
+    grid = smooth_grid([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]])
+    # 3x3: 2 vertical pairs per column x 3, plus 2 horizontal per row x 3.
+    assert sign_flip_pairs(grid, ["a", "b"]) == 12
 
 
 def test_count_gate_power_is_reported_honestly():

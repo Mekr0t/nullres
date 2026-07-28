@@ -240,8 +240,12 @@ def cmd_audit(cfg, args) -> int:
     failed = [c for c in checks if c.applicable and not c.passed]
     skipped = [c for c in checks if not c.applicable]
     if skipped:
-        print(f"\n{len(skipped)} check(s) did not apply to this config and have "
-              f"NOT been ruled out.")
+        print(f"\n{len(skipped)} of {len(checks)} check(s) did not apply to this "
+              f"config, so {len(checks) - len(skipped)} actually ran and the rest "
+              f"have NOT been ruled out.")
+        print("Survivorship is inapplicable to every single-symbol config in "
+              "configs/ — it\nonly has something to test through `nullres xsec`. "
+              "Do not read the audit as\nfive checks passing here; read it as four.")
     if failed:
         print(f"\n{len(failed)} CHECK(S) FAILED — results from this config are not "
               f"trustworthy until these are resolved.")
@@ -305,7 +309,17 @@ def cmd_budget(cfg, args) -> int:
 
     _banner(f"COST BUDGET: {cfg.data.symbol} {cfg.data.interval}")
     bars = load_bars(cfg.data)
-    sigma = float(np.log(bars["close"]).diff().std())
+    logret = np.log(bars["close"]).diff()
+    sigma = float(logret.std())
+
+    # The tables below model returns as Gaussian, where the typical move is
+    # sigma*sqrt(2/pi). Crypto returns are fat-tailed, so sigma overstates the
+    # move an average bar actually makes, and every accuracy the table quotes is
+    # therefore too low. Printing both numbers puts the size of that gap in
+    # front of the reader instead of leaving it in a docstring.
+    from nullres.costs import expected_abs_move
+
+    modelled, empirical = expected_abs_move(sigma, 1), float(logret.abs().mean())
 
     # Bars carry no duration on their own; the break-even table is only readable
     # once they are converted to wall-clock time at this config's bar size.
@@ -314,6 +328,12 @@ def cmd_budget(cfg, args) -> int:
     print()
     print(budget_table(sigma, cfg.cost.fee_bps, cfg.cost.slippage_bps,
                        hours_per_bar=hours_per_bar))
+    print(f"\nE|move| above is the Gaussian {modelled:.4%} per bar; the measured "
+          f"mean absolute\nmove is {empirical:.4%}, "
+          f"{modelled / empirical - 1:.0%} smaller. Fat tails inflate sigma "
+          f"relative to the\ntypical bar, so every accuracy in the first table "
+          f"is a FLOOR, not a target.")
+
     print(f"\nYour config holds a position for at least {cfg.sizing.min_hold} bars "
           f"({format_duration(cfg.sizing.min_hold * hours_per_bar)}).")
     print("If that is far below the break-even row for the accuracy you actually")
@@ -326,7 +346,7 @@ def cmd_robust(cfg, args) -> int:
     """Try three times to kill a strategy that looked good once."""
     from nullres.robustness import (
         cross_symbol, grid_for, hold_sharpe, parameter_neighbourhood,
-        period_stability, pivot_grid, sign_flip_rate, verdict,
+        period_stability, pivot_grid, sign_flip_pairs, sign_flip_rate, verdict,
     )
 
     strategy = args.strategy
@@ -346,9 +366,10 @@ def cmd_robust(cfg, args) -> int:
         print("(varying [sizing]; the model fit is identical across the grid)\n")
     print(pivot_grid(grid, list(grid_def)))
     flips = sign_flip_rate(grid, list(grid_def))
+    pairs = sign_flip_pairs(grid, list(grid_def))
     print(f"\n  {(grid['sharpe'] > 0).mean():.0%} positive, "
           f"median {grid['sharpe'].median():.2f}, "
-          f"sign flips across {flips:.0%} of adjacent cells")
+          f"sign flips across {flips:.0%} of {pairs} adjacent cell pairs")
 
     print("\n--- 2/3 sub-period stability " + "-" * 47)
     print("Is it profitable every year, or did one year carry it?\n")
@@ -379,7 +400,7 @@ def cmd_robust(cfg, args) -> int:
     # is a different statistic and a materially higher bar.
     bench = hold_sharpe(cfg, ctx)
     outcome, notes = verdict(grid, stability, transfer, benchmark_sharpe=bench,
-                             flip_rate=flips)
+                             flip_rate=flips, flip_pairs=pairs)
     _banner("VERDICT: " + outcome)
     for note in notes:
         print(f"  {note}")
@@ -553,10 +574,18 @@ def cmd_xsec(cfg, args) -> int:
     # the measurement agree with the intent.
     oos_mask = pd.Series(panel.times.isin(oos_times), index=panel.times)
 
+    # This command produced the strongest result in the project, and it was the
+    # one place the multiple-testing correction never reached: `summarize` was
+    # called without `n_trials`, so `deflated_sharpe` returned the raw Sharpe and
+    # every deflation figure in the docs had to be worked out by hand. The
+    # correction is worth least on the results you were never going to question.
+    n_trials = args.trials or trials_so_far(cfg, extra=1)
+
     results = {}
     for name, result in benchmarks(panel, cfg.cost, oos_times,
                                    rebalance=args.rebalance).items():
-        results[name] = summarize(result, cfg.data.bars_per_year, mask=oos_mask)
+        results[name] = summarize(result, cfg.data.bars_per_year,
+                                  n_trials=n_trials, mask=oos_mask)
 
     stability = None
     if args.top_k:
@@ -571,13 +600,22 @@ def cmd_xsec(cfg, args) -> int:
         positions = panel_positions(proba, panel, top_k=k, rebalance=args.rebalance)
         result = backtest_panel(positions, panel, cfg.cost)
         results[f"longshort_k{k}"] = summarize(result, cfg.data.bars_per_year,
-                                               mask=oos_mask)
+                                               n_trials=n_trials, mask=oos_mask)
         if stability is None:
             stability = by_period(result, cfg.data.bars_per_year, mask=oos_mask)
             stability_k = k
 
     _banner("RESULTS")
     print(format_table(results))
+
+    print(f"\nDeflated Sharpe (adjusted for {n_trials:,} variants across the run "
+          f"ledger):")
+    caveat = trials_caveat()
+    if caveat:
+        print(caveat)
+    for name, m in results.items():
+        tail = "" if m["deflated_sharpe"] > 0 else "   <- indistinguishable from luck"
+        print(f"  {name:<18}{m['deflated_sharpe']:>7.2f}{tail}")
 
     if stability is not None and not stability.empty:
         print(f"\nper-year (k={stability_k}):")
@@ -616,6 +654,12 @@ def cmd_xsec(cfg, args) -> int:
     print("\n  (Sharpe. If the model's column decays fast while static holds up,")
     print("   the durable part of the result needs no model.)")
 
+    if args.verify:
+        from nullres.panelaudit import format_report
+
+        print(format_report(panel, cfg, proba, positions_by_k[ks[0]],
+                            float(np.nanmean(aucs))))
+
     print("\nRead this against static_vs_alts, not equal_weight. A model that")
     print("only learned 'the lowest-volatility member outperforms' has learned")
     print("long-BTC/short-alts under another name — and that book needs no model")
@@ -626,9 +670,12 @@ def cmd_xsec(cfg, args) -> int:
             metrics={
                 "n_symbols": len(panel.symbols),
                 "n_delisted": len(panel.delisted),
+                "n_features": int(panel.features.shape[1]),
                 "mean_auc": float(np.nanmean(aucs)),
+                "n_trials_used": n_trials,
                 **{name: {k: m[k] for k in ("total_return", "sharpe", "max_dd",
-                                            "t_stat", "n_trades")}
+                                            "t_stat", "n_trades",
+                                            "deflated_sharpe")}
                    for name, m in results.items()},
             })
     return 0
@@ -685,7 +732,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("command", choices=sorted(COMMANDS))
     parser.add_argument("--config", "-c", default="configs/btc_1h.toml")
     parser.add_argument("--strategy", "-s", default="ml_meta",
-                        help="sweep: which strategy to sweep")
+                        help="sweep/robust: which strategy to operate on")
     parser.add_argument("--save", action="store_true", help="run: write metrics JSON")
     parser.add_argument("--trials", type=int, default=None,
                         help="override the multiple-testing trial count used by "
@@ -709,6 +756,10 @@ def main(argv: list[str] | None = None) -> int:
                         help="xsec: keep the top-N by trailing dollar volume")
     parser.add_argument("--rebalance", type=int, default=42,
                         help="xsec: bars between book rebalances (turnover control)")
+    parser.add_argument("--verify", action="store_true",
+                        help="xsec: run the controls that decide whether panel "
+                             "skill is real — shuffled labels, survivors-only, "
+                             "per-symbol spread, delisted P&L share, tail census")
     parser.add_argument("--transfer-start", default=None, metavar="YYYY-MM",
                         help="robust: force a common start date across symbols "
                              "(auxiliary archives begin at different dates)")

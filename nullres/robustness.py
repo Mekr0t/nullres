@@ -240,6 +240,25 @@ def cross_symbol(cfg, strategy: str, symbols: list[str],
     return pd.DataFrame(rows)
 
 
+def sign_flip_pairs(grid: pd.DataFrame, keys: list[str]) -> int:
+    """How many adjacent cell pairs `sign_flip_rate` measured over.
+
+    The rate alone cannot say whether it is distinguishable from chance; that
+    needs the denominator too.
+    """
+    if len(keys) != 2 or grid.empty:
+        return 0
+    values = grid.pivot(index=keys[0], columns=keys[1], values="sharpe").to_numpy(
+        dtype="float64")
+    total = 0
+    for axis in (0, 1):
+        a = np.moveaxis(values, axis, 0)
+        for i in range(len(a) - 1):
+            pair = np.vstack([a[i], a[i + 1]])
+            total += int(np.isfinite(pair).all(axis=0).sum())
+    return total
+
+
 def sign_flip_rate(grid: pd.DataFrame, keys: list[str]) -> float:
     """Fraction of adjacent grid cells whose Sharpe changes sign.
 
@@ -269,25 +288,53 @@ def sign_flip_rate(grid: pd.DataFrame, keys: list[str]) -> float:
 
 
 def _is_noise_field(frac_positive: float, flip_rate: float | None,
-                    tolerance: float = 0.8) -> bool:
+                    n_pairs: int | None = None, alpha: float = 0.05) -> bool:
     """Is the grid's sign pattern indistinguishable from random placement?
 
     If a fraction p of cells are positive and they are scattered at random,
-    adjacent cells differ in sign with probability 2p(1-p). A genuine effect
+    adjacent cells differ in sign with probability `2p(1-p)`. A genuine effect
     clusters, giving a materially lower rate. Measuring against this baseline
-    rather than a fixed threshold matters: a grid that is 95% positive can
-    never flip more than ~10% of the time, so a flat cutoff would wave it
-    through regardless of arrangement.
+    rather than a fixed threshold matters: a grid that is 95% positive can never
+    flip more than ~10% of the time, so a flat cutoff would wave it through
+    regardless of arrangement.
 
-    When almost every cell shares one sign the test is vacuous — there is
-    nothing for an arrangement to be informative about — so it is skipped.
+    **What changed and why.** This used to flag a noise field when the observed
+    rate reached `0.8 x expected` — a constant with no argument behind it, doing
+    the work of a significance level. The flip count has a computable null: over
+    `n_pairs` adjacent pairs it is approximately Binomial(n_pairs, 2p(1-p)). So
+    the question "is this grid smoother than chance" has an actual test, and the
+    gate now asks it directly: if the observed count is not significantly BELOW
+    the random-placement rate, the arrangement carries no information.
+
+    The pairs overlap — a cell belongs to up to four of them — so they are not
+    independent and the test is approximate. It errs toward calling grids random
+    (correlated pairs make the true variance larger than binomial), which is the
+    conservative direction for a falsification tool.
+
+    Without `n_pairs` it falls back to the old constant, so callers that have not
+    been updated keep working rather than silently passing everything.
     """
     if flip_rate is None or not np.isfinite(flip_rate):
         return False
+
     expected = 2 * frac_positive * (1 - frac_positive)
-    if expected < 0.05:
+
+    if not n_pairs:
+        # Legacy path for callers that cannot supply the denominator.
+        return expected >= 0.05 and flip_rate >= 0.8 * expected
+
+    # Does this grid have the power to prove smoothness at all? If even the
+    # best possible arrangement — zero flips — would not be significantly below
+    # the random rate, the test cannot discriminate and must not pretend to.
+    # That happens when almost every cell shares one sign (a 97%-positive grid
+    # can only flip ~6% of the time however it is arranged) or when the grid is
+    # simply too small. Reporting "no smoother than chance" there would condemn
+    # a strong result for having too few signs to shuffle.
+    if float(sps.binom.cdf(0, n_pairs, expected)) > alpha:
         return False
-    return flip_rate >= tolerance * expected
+
+    flips = int(round(flip_rate * n_pairs))
+    return float(sps.binom.cdf(flips, n_pairs, expected)) > alpha
 
 
 KILLED, SURVIVED, INCONCLUSIVE = "KILLED", "SURVIVED", "INCONCLUSIVE"
@@ -379,7 +426,8 @@ def _count_gate(values, label: str, unit: str,
 def verdict(neighbourhood: pd.DataFrame, stability: pd.DataFrame,
             transfer: pd.DataFrame,
             benchmark_sharpe: float | None = None,
-            flip_rate: float | None = None) -> tuple[str, list[str]]:
+            flip_rate: float | None = None,
+            flip_pairs: int | None = None) -> tuple[str, list[str]]:
     """Turn the three tables into KILLED, SURVIVED or INCONCLUSIVE, with reasons.
 
     Three states, not two, because two states forced a claim the evidence does
@@ -404,22 +452,27 @@ def verdict(neighbourhood: pd.DataFrame, stability: pd.DataFrame,
     frac = float((neighbourhood["sharpe"] > 0).mean())
     median = float(neighbourhood["sharpe"].median())
     best = float(neighbourhood["sharpe"].max())
-    # The neighbourhood gate keeps a hard pass/fail, but not because counting
-    # ~20 cells is decisive on its own — at a 60% threshold even 20 independent
-    # draws fire a quarter of the time by chance, and adjacent grid cells are
-    # heavily correlated, so the effective count is smaller still. What carries
-    # this gate is the two conditions the count does not supply: the median must
-    # be positive, and `_is_noise_field` judges the ARRANGEMENT of signs against
-    # what random placement would give. Those do not degrade with sample size
-    # the way a bare count does.
-    if frac < 0.6 or median <= 0:
+    # A grid is a sensitivity surface, not a sample. Its cells are neighbouring
+    # parameter values evaluated on the SAME bars, so they are heavily
+    # correlated and a t-test over them would be nonsense — the effective count
+    # is unknowable and far below the nominal one. That rules out the magnitude
+    # test the other two gates use.
+    #
+    # Two things can still be said without assuming independence. The median is
+    # a statement about the typical parameter choice, not a sampling estimate:
+    # if it loses money, the surface loses money. And the ARRANGEMENT of signs
+    # is testable against random placement regardless of how correlated the
+    # values are. Those two carry this gate; the bare count does not, and at a
+    # 60% threshold on ~20 cells it fires a quarter of the time by chance.
+    if median <= 0:
         outcomes.append("FAIL")
         notes.append(
-            f"NEIGHBOURHOOD FAIL: only {frac:.0%} of {len(neighbourhood)} parameter "
-            f"combinations are positive (median sharpe {median:.2f}, best {best:.2f}). "
-            f"A real effect is not this sensitive to its own parameters."
+            f"NEIGHBOURHOOD FAIL: the median of {len(neighbourhood)} parameter "
+            f"combinations is {median:.2f} (best {best:.2f}, {frac:.0%} positive). "
+            f"The typical choice of parameters loses money; only the lucky ones "
+            f"do not."
         )
-    elif _is_noise_field(frac, flip_rate):
+    elif _is_noise_field(frac, flip_rate, flip_pairs):
         # Counting positive cells cannot distinguish a coherent region from a
         # checkerboard. Compare the observed flip rate against what random
         # placement of the SAME number of positive cells would produce:
@@ -443,11 +496,33 @@ def verdict(neighbourhood: pd.DataFrame, stability: pd.DataFrame,
                        f"({benchmark_sharpe:.2f})")
         smooth = f", sign flips across {flip_rate:.0%} of adjacent cells" \
             if flip_rate is not None else ""
-        outcomes.append("PASS")
-        notes.append(
-            f"neighbourhood ok: {frac:.0%} of combinations positive, "
-            f"median sharpe {median:.2f}{context}{smooth}"
-        )
+
+        # The reported cell sitting far above its own neighbours is the shape a
+        # fitted parameter makes. This needs no independence assumption — it
+        # asks where the headline sits inside its own surface, not whether the
+        # surface is a sample of anything.
+        spread = float(neighbourhood["sharpe"].quantile(0.75)
+                       - neighbourhood["sharpe"].quantile(0.25))
+        outlier = spread > 0 and (best - median) > 3 * spread
+        if frac < 0.6 or outlier:
+            outcomes.append("WEAK")
+            why = (f"its best cell ({best:.2f}) sits {(best - median) / spread:.1f} "
+                   f"interquartile ranges above the median"
+                   if outlier else
+                   f"only {frac:.0%} of cells are positive")
+            notes.append(
+                f"NEIGHBOURHOOD INCONCLUSIVE: the arrangement is smoother than "
+                f"chance and the median is {median:.2f}, but {why}. At "
+                f"{len(neighbourhood)} correlated cells the positive count is "
+                f"weak evidence either way — a 60% threshold fires on roughly a "
+                f"quarter of grids with no edge at all{context}{smooth}."
+            )
+        else:
+            outcomes.append("PASS")
+            notes.append(
+                f"neighbourhood ok: {frac:.0%} of combinations positive, "
+                f"median sharpe {median:.2f}{context}{smooth}"
+            )
 
     # The test that matters is beating the benchmark, not being positive. A
     # long-only filter over a bull market is positive in most years by

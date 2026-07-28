@@ -159,6 +159,28 @@ def test_widening_a_sweep_raises_the_count_for_that_experiment(cfg, tmp_path):
     assert count_trials(load_runs(str(tmp_path))) == 25
 
 
+def test_calibration_runs_are_not_multiple_testing_exposure(tmp_path):
+    """Verifying the instrument must not penalise the results.
+
+    `configs/null.toml` runs the whole pipeline on a random walk to prove the
+    harness finds nothing there. It tests no hypothesis about any market, so
+    counting it as a trial would mean every check of the instrument deflated
+    every real result a little further — a direct penalty for being careful.
+    """
+    from nullres.runlog import count_trials
+
+    real = load_config("configs/btc_4h.toml")
+    null = load_config("configs/null.toml")
+    assert null.data.source == "synthetic"
+
+    record_run(real, "run", variants=7, runs_dir=str(tmp_path))
+    before = count_trials(load_runs(str(tmp_path)))
+
+    record_run(null, "run", variants=6, runs_dir=str(tmp_path))
+    assert count_trials(load_runs(str(tmp_path))) == before
+    assert len(load_runs(str(tmp_path))) == 2, "still recorded, just not counted"
+
+
 def test_records_predating_variants_are_flagged_not_absorbed(cfg, tmp_path):
     """A missing field must not be read as 'one trial' in silence.
 
@@ -296,6 +318,31 @@ def test_near_miss_of_a_killed_run_is_flagged(cfg, tmp_path):
     distance, differing, record = hits[0]
     assert distance == 1 and differing == ["sizing.min_hold"]
     assert "KILLED" in format_warning(hits)
+
+
+def test_a_different_asset_is_a_new_experiment_not_a_near_miss(cfg, tmp_path):
+    """Killing a rule on BTC says nothing about SOL.
+
+    Distance counted every key equally, so `data.symbol` scored the same as
+    `sizing.min_hold` off by one — and testing a dead rule on a different asset
+    got flagged as re-treading a dead end. The warning must stay rare enough to
+    keep being read.
+    """
+    record_run(cfg, "robust", verdict="KILLED", runs_dir=str(tmp_path))
+    runs = load_runs(str(tmp_path))
+
+    other_asset = copy.deepcopy(cfg)
+    other_asset.data.symbol = "SOLUSDT"
+    assert not find_similar(other_asset, runs), "a different asset is a new experiment"
+
+    other_period = copy.deepcopy(cfg)
+    other_period.data.start = "2018-01"
+    assert not find_similar(other_period, runs), "a different era is a new experiment"
+
+    # ...but tuning the same experiment on the same data still warns.
+    tuned = copy.deepcopy(cfg)
+    tuned.sizing.min_hold += 6
+    assert find_similar(tuned, runs)
 
 
 def test_a_genuinely_different_config_is_not_flagged(cfg, tmp_path):

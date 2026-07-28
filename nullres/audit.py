@@ -63,13 +63,19 @@ class Check:
 
 
 def check_point_in_time(bars: pd.DataFrame, builder=build_features,
-                        probes: int = 5, tol: float = 1e-9,
+                        probes: int = 12, tol: float = 1e-9,
                         seed: int = 0) -> Check:
     """Recompute features on a truncated history and compare the final row.
 
     If `build_features(bars[:t+1]).iloc[t]` differs from
     `build_features(bars).iloc[t]`, then the full-history version used data from
     after bar t. There is no way for that to be legitimate.
+
+    The probes are random but seeded, so the check is reproducible — and so it
+    inspects the same bars on every run. That is the trade: a leak that only
+    manifests in one regime is found only if a probe lands in it, which is why
+    the count is more than a token few. Raise `probes` when adding a feature
+    whose behaviour is regime-dependent.
     """
     if len(bars) < 50:
         return Check("point-in-time features", False,
