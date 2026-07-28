@@ -89,6 +89,30 @@ def universe_as_of(month: str, interval: str = "4h", market: str = "um",
     return live
 
 
+def delisted_from_cache(symbols: list[str], interval: str, end: str,
+                        cache_dir: str = "data", market: str = "um",
+                        grace_months: int = 2) -> dict[str, str]:
+    """Symbols whose cached archive stops well before the sample ends.
+
+    Works entirely off local parquet files, so the survivorship check runs
+    offline and costs nothing. `grace_months` absorbs the normal lag between
+    the end of a range and the archive catching up — without it, every symbol
+    looks delisted in the current month.
+    """
+    tag = "" if market == "spot" else f"{market}-"
+    cutoff = (pd.Period(end, freq="M") - grace_months).strftime("%Y-%m")
+
+    out: dict[str, str] = {}
+    for symbol in symbols:
+        months = sorted(
+            p.stem.rsplit("-", 2)[-2] + "-" + p.stem.rsplit("-", 2)[-1]
+            for p in Path(cache_dir).glob(f"{tag}{symbol}-{interval}-*.parquet")
+        )
+        if months and months[-1] < cutoff:
+            out[symbol] = months[-1]
+    return out
+
+
 def liquidity_screen(volumes: pd.DataFrame, top_n: int = 40,
                      window: int = 180, min_history: int = 180) -> pd.DataFrame:
     """Boolean mask: is this symbol in the top-N by TRAILING dollar volume?

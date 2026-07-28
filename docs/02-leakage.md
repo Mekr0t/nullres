@@ -109,9 +109,36 @@ Backtesting today's top 100 coins over 2020–2025 tests the strategy "buy thing
 that will still exist and be popular in 2025". The losers were deleted from your
 universe, so your strategy cannot lose on them.
 
-**Not detectable mechanically.** It is a property of how you chose the universe,
-not of your code. This repo sidesteps it by trading a single fixed symbol. The
-moment you add a universe selector, you own this problem.
+**Partly detectable, contrary to what this file used to claim.** The dominant
+failure mode is mechanical, and it is this:
+
+> A multi-symbol universe, spanning a period that killed assets, which contains
+> none of them, was filtered by survival.
+
+`audit.check_survivorship` tests exactly that. It fails a universe with no
+delisted members, and fails one that drops most of the symbols which were
+actually trading at the sample start — because "they are not around any more"
+is not a selection criterion.
+
+Two supporting pieces make it possible:
+
+- `data.universe.universe_as_of(month)` enumerates the archive and asks each
+  symbol "did you have data that month". A coin that listed in 2023 fails; a
+  coin that died in 2022 passes, and belongs in the sample. Writing the list by
+  hand instead is hindsight — you will recall the survivors.
+- `data.universe.delisted_from_cache` identifies symbols whose archive stops
+  early, offline, from local files.
+
+The repo's own universe is built this way: 136 symbols enumerated as of
+2021-12, of which 9 later died and are held to the end.
+
+**What it still cannot see** is whether you picked the *winners among the
+survivors*. That is hindsight, entry 7 below, and no check will ever catch it.
+
+**A note on the `n/a` verdict.** For a single-symbol backtest this check
+reports "not applicable" rather than PASS. A green tick would claim the risk
+was ruled out when it was never examined, which is the same species of false
+assurance the audit exists to prevent.
 
 ## 6. Choosing hyperparameters on the test set
 
@@ -166,9 +193,16 @@ Everything before that is a hypothesis.
 
 | check | catches |
 |---|---|
-| `check_point_in_time` | leaks 2, 3 — and any future reference in features |
+| `check_point_in_time` | leaks 2, 3, 3b — any future reference in features |
 | `check_label_leakage` | leak 1 |
 | `check_shuffled_label` | side channels: permuted labels must be unlearnable |
 | `check_null_data` | engine/split bugs: a random walk must yield no edge |
+| `check_survivorship` | leak 5 — a universe with no corpses in it |
+| purged splits + `t_end` | leak 4, enforced by construction rather than checked |
+| ledger-derived `n_trials` | leak 6 — deflates against every variant tried |
 
-Leaks 5, 6 and 7 are yours to avoid. No test suite can do it for you.
+**Six of the seven are now mechanical.** Only entry 7 — hindsight in the
+research process — is left entirely to you, and it is the one that no test
+suite will ever reach. Everything above tells you whether your measurements are
+sound. None of it tells you whether the question was chosen after you already
+knew the answer.

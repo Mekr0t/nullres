@@ -30,10 +30,14 @@ became a command:
 python -m nullres audit --config configs/btc_1h.toml
 ```
 
-Four mechanical checks — point-in-time features, single-feature AUC, a
-shuffled-label control, and a random-walk null run. The audit catches the leak
-that walk-forward missed, and `tests/test_audit.py` injects four realistic leaks
-and asserts every one is caught.
+Five mechanical checks — point-in-time features, single-feature AUC, a
+shuffled-label control, a random-walk null run, and survivorship. The audit
+catches the leak that walk-forward missed, and the test suite injects realistic
+leaks and asserts every one is caught.
+
+Of the [seven leaks catalogued](docs/02-leakage.md), **six are now mechanical**.
+The seventh is hindsight in the research process, and no test suite will ever
+reach it.
 
 ---
 

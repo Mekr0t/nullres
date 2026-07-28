@@ -132,6 +132,8 @@ def cmd_run(cfg, args) -> int:
           f"min_hold={cfg.sizing.min_hold}")
     _warn_if_already_killed(cfg)
 
+    n_trials = args.trials or trials_so_far(cfg, extra=len(cfg.strategies) + 1)
+
     if args.ablate:
         from nullres.pipeline import ablate
 
@@ -141,10 +143,9 @@ def cmd_run(cfg, args) -> int:
         print(f"\nABLATION: dropped {before - ctx.features.shape[1]} "
               f"{args.ablate} features ({before} -> {ctx.features.shape[1]}). "
               f"Rows, splits and benchmark are unchanged.")
-        results = run_pipeline(cfg, ctx=ctx)
+        results = run_pipeline(cfg, ctx=ctx, n_trials=n_trials)
     else:
-        n_trials = args.trials or trials_so_far(cfg, extra=len(cfg.strategies) + 1)
-    results = run_pipeline(cfg, n_trials=n_trials)
+        results = run_pipeline(cfg, n_trials=n_trials)
 
     _banner("RESULTS (out-of-sample only)")
     print(format_table(results))
@@ -186,7 +187,7 @@ def cmd_audit(cfg, args) -> int:
     ctx = prepare(cfg)
     checks = []
 
-    print("\n1/4 point-in-time feature check (recomputing on truncated history)")
+    print("\n1/5 point-in-time feature check (recomputing on truncated history)")
     # Rebuild through the same auxiliary data the pipeline used, so the
     # funding/OI join is covered by the truncation test rather than exempt.
     from nullres.data import load_auxiliary
@@ -197,24 +198,32 @@ def cmd_audit(cfg, args) -> int:
         ctx.bars, builder=lambda d: _bf(d, funding=funding, metrics=metrics)
     ))
 
-    print("2/4 single-feature AUC against the label")
+    print("2/5 single-feature AUC against the label")
     checks.append(audit_mod.check_label_leakage(ctx.features, ctx.label["y"]))
 
-    print("3/4 shuffled-label control (retraining on permuted targets)")
+    print("3/5 shuffled-label control (retraining on permuted targets)")
     checks.append(audit_mod.check_shuffled_label(
         ctx.features, ctx.label["y"],
         ctx.label["t_end"].to_numpy(dtype=np.int64),
         cfg.split, cfg.model,
     ))
 
-    print("4/4 null data (running the full pipeline on a random walk)")
+    print("4/5 null data (running the full pipeline on a random walk)")
     checks.append(audit_mod.check_null_data(run_pipeline, cfg))
+
+    print("5/5 survivorship (does this universe contain assets that died?)")
+    checks.append(audit_mod.check_survivorship([cfg.data.symbol], delisted={}))
 
     _banner("AUDIT RESULTS")
     for check in checks:
         print(check)
 
-    failed = [c for c in checks if not c.passed]
+    # A check that could not apply is neither a pass nor a failure.
+    failed = [c for c in checks if c.applicable and not c.passed]
+    skipped = [c for c in checks if not c.applicable]
+    if skipped:
+        print(f"\n{len(skipped)} check(s) did not apply to this config and have "
+              f"NOT been ruled out.")
     if failed:
         print(f"\n{len(failed)} CHECK(S) FAILED — results from this config are not "
               f"trustworthy until these are resolved.")
@@ -475,12 +484,18 @@ def cmd_xsec(cfg, args) -> int:
           f"features | {len(panel.features):,} panel rows")
     print(f"base rate {panel.y.mean():.4f} "
           f"(balanced by construction — half the universe beats the median)")
-    if panel.delisted:
-        for sym, last in panel.delisted.items():
-            print(f"  DELISTED: {sym} last traded {last:%Y-%m-%d} — held to the end")
-    else:
-        print("  WARNING: no delisted symbols in this universe. If that is not")
-        print("  deliberate, the result is survivorship-biased.")
+    for sym, last in panel.delisted.items():
+        print(f"  DELISTED: {sym} last traded {last:%Y-%m-%d} — held to the end")
+
+    survivorship = audit_mod.check_survivorship(
+        panel.symbols, panel.delisted,
+        point_in_time=symbols,
+        hardcoded=not args.universe and not args.symbols_given,
+    )
+    print(f"\n{survivorship}")
+    if not survivorship.passed:
+        print("\n  Every number below is suspect until this is fixed. A universe")
+        print("  filtered by survival cannot lose money on the things that died.")
 
     print("\nwalk-forward fit (folds split on TIME; all symbols move together)")
     proba, reports = fit_predict_panel(panel, cfg)

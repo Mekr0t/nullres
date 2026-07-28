@@ -43,9 +43,16 @@ class Check:
     name: str
     passed: bool
     detail: str
+    # Some checks cannot apply to some configs — survivorship is meaningless for
+    # a single-symbol backtest. Reporting that as PASS would be a vacuous green
+    # tick, which is worse than saying nothing: it implies a risk was ruled out
+    # when it was never examined.
+    applicable: bool = True
 
     def __str__(self) -> str:
         mark = "PASS" if self.passed else "FAIL"
+        if not self.applicable:
+            mark = "n/a "
         return f"  [{mark}] {self.name}\n         {self.detail}"
 
 
@@ -164,6 +171,71 @@ def check_null_data(run_pipeline, cfg, sharpe_limit: float = 0.5) -> Check:
         "null (random-walk) data", True,
         f"no strategy beat sharpe {sharpe_limit} on synthetic data (best {best:.2f})",
     )
+
+
+def check_survivorship(symbols, delisted, point_in_time=None,
+                       hardcoded: bool = False) -> Check:
+    """Does this universe contain assets that died?
+
+    Backtesting a universe chosen from what is liquid today is a test of
+    "things that survived", and it will produce a beautiful, meaningless
+    result. The catalogue used to call this undetectable. It is not — not
+    fully, but the dominant failure mode is mechanical:
+
+      A multi-symbol universe spanning a period that killed assets, which
+      contains none of them, was filtered by survival.
+
+    What this CANNOT see is whether you picked the winners among the survivors.
+    That is hindsight, and it stays yours to avoid — see the catalogue's entry 7.
+
+    Args:
+        symbols: the universe actually traded.
+        delisted: symbols whose data stops before the sample ends.
+        point_in_time: optionally, the universe as enumerated at the sample
+            start. Lets the check measure how much of the graveyard was dropped.
+        hardcoded: True when the universe was a literal list rather than
+            enumerated from the archive as of a date.
+    """
+    symbols = list(symbols)
+    dead = set(delisted or ())
+
+    if len(symbols) < 2:
+        return Check(
+            "survivorship", True,
+            f"single-symbol backtest ({symbols[0] if symbols else 'none'}) — "
+            f"survivorship does not apply, and has NOT been ruled out for any "
+            f"multi-asset extension of this work",
+            applicable=False,
+        )
+
+    if not dead:
+        detail = (
+            f"none of the {len(symbols)} symbols stopped trading during the "
+            f"sample. Either the period genuinely killed nothing, or the "
+            f"universe was chosen from survivors"
+        )
+        if hardcoded:
+            detail += " — and this universe is a hardcoded list, which is how "\
+                      "that happens"
+        return Check("survivorship", False, detail)
+
+    share = len(dead) / len(symbols)
+    detail = (f"{len(dead)} of {len(symbols)} symbols ({share:.0%}) delisted "
+              f"during the sample and were held to the end: "
+              f"{', '.join(sorted(dead)[:5])}"
+              f"{'...' if len(dead) > 5 else ''}")
+
+    if point_in_time:
+        missing = set(point_in_time) - set(symbols)
+        detail += (f". Universe covers {len(symbols)}/{len(point_in_time)} of the "
+                   f"symbols trading at the sample start")
+        if missing and len(missing) > len(point_in_time) * 0.5:
+            return Check(
+                "survivorship", False,
+                detail + f" — {len(missing)} were excluded, which needs a reason "
+                         f"that is not 'they are not around any more'",
+            )
+    return Check("survivorship", True, detail)
 
 
 def check_shuffled_label(X: pd.DataFrame, y: pd.Series, t_end: np.ndarray,
