@@ -162,11 +162,19 @@ prints the whole surface rather than the maximum, and tells you what to look
 for: a real edge degrades *smoothly* as parameters move. A lone positive cell
 surrounded by negatives is a fitting artefact.
 
-`nullres robust` makes that judgement quantitative. It measures how often the sign
-changes between adjacent grid cells and compares it against `2p(1-p)` — the
-rate you would get by scattering the same number of positive cells at random.
-Matching the baseline means the arrangement carries no information, however
-good the best cell looks.
+`nullres robust` makes that judgement quantitative. It measures how often the
+sign changes between adjacent grid cells and tests that count against
+`Binomial(pairs, 2p(1-p))` — the distribution you would get by scattering the
+same number of positive cells at random. If the observed count is not
+significantly below that rate, the arrangement carries no information, however
+good the best cell looks. When the grid is so lopsided that even a perfectly
+smooth arrangement would not be significant, the test says so rather than
+guessing.
+
+That comparison used to be a constant (`0.8 x expected`) standing in for a
+significance level. It gave the same answers on the grids in this repo, but a
+tunable constant deciding whether results live is precisely the thing the rest
+of this file is about.
 
 If you must select, `metrics.deflated_sharpe` subtracts the Sharpe you would
 expect to reach by luck given `n_trials`. Searching 100 variants on pure noise

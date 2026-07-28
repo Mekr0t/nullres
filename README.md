@@ -93,10 +93,18 @@ The linear pipeline is the boring part. The loop around it is the product.
 Three outcomes, not two, because two forced a claim the evidence could not
 support. The stability and transfer gates read five years and four symbols; at
 that size a strategy exactly as good as buy & hold fails them 50% and 31% of the
-time. A gate now returns KILLED only when the count goes against a strategy
-**and** the magnitude of the shortfall is distinguishable from zero — otherwise
-the run is INCONCLUSIVE, and deciding what that means is yours. Every note
-prints how often its gate would have fired by chance.
+time. Those two now return KILLED only when the count goes against a strategy
+**and** the magnitude of the shortfall is distinguishable from zero.
+
+The neighbourhood gate cannot use that test — grid cells are neighbouring
+parameters on the same bars, so they are correlated and their effective sample
+size is unknowable. It relies instead on what survives that: the median must be
+positive, and the *arrangement* of signs must be significantly smoother than
+random placement. It too can return INCONCLUSIVE, when the surface is smooth but
+the headline cell towers over its neighbours.
+
+Anything short of decisive is INCONCLUSIVE, and deciding what that means is
+yours. Every note prints how often its own gate would have fired by chance.
 
 | stage | guarantees |
 |---|---|

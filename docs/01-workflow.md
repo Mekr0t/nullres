@@ -131,17 +131,34 @@ Three attempts to falsify, all of which a real effect should survive:
   effect degrades smoothly; if one cell in a grid is positive and its
   neighbours are not, you found the cell that fit, not an edge.
 
-  Counting positive cells cannot see this, which is why the check compares the
-  observed **sign-flip rate between adjacent cells** against what random
-  placement would give. If a fraction `p` of cells are positive and scattered
-  at random, neighbours differ in sign with probability `2p(1-p)`. A real
-  effect clusters and flips far less often. A fixed threshold would be wrong in
-  both directions: a grid that is 95% positive can never flip more than ~10% of
-  the time regardless of arrangement.
+  Counting positive cells cannot see this, which is why the check reads the
+  **arrangement** of signs rather than their number. If a fraction `p` of cells
+  are positive and scattered at random, adjacent cells differ in sign with
+  probability `2p(1-p)`; a real effect clusters and flips far less often. Over
+  `n` adjacent pairs the flip count is approximately `Binomial(n, 2p(1-p))`, so
+  "is this grid smoother than chance" is a significance test, not a threshold.
+  The gate fails when the observed count is **not** significantly below the
+  random rate at 5%.
+
+  It also checks whether the test can conclude anything at all. A grid that is
+  95% positive can only flip ~10% of the time however it is arranged, so even a
+  perfectly smooth one would not be significant — there the test abstains
+  instead of condemning a strong result for having too few signs to shuffle.
+
+  Two things this gate deliberately does *not* do. It runs no magnitude test:
+  grid cells are neighbouring parameters evaluated on the same bars, so they are
+  heavily correlated and a t-test over them would invent an effective sample
+  size nobody knows. And it no longer fails on the positive count alone — at
+  ~20 correlated cells a 60% threshold fires on roughly a quarter of grids with
+  no edge at all, so a low count downgrades to INCONCLUSIVE rather than killing.
+  What can still be said without assuming independence is that the *median*
+  must be positive (the typical parameter choice must not lose money) and that
+  the best cell must not tower over its own neighbours.
 
   This is what killed the derivatives ML strategies. `ml_direction` scored 75%
-  of cells positive with a median Sharpe of 0.28 — and flipped sign across 39%
-  of adjacent cells against a 37.5% random baseline. Identical to chance.
+  of cells positive with a median Sharpe of 0.33 — and flipped sign across 39%
+  of adjacent cell pairs against a 37.5% random baseline. Indistinguishable
+  from chance.
 - **Sub-period stability** — profitable *relative to buy & hold* in most years,
   or carried by one? Note the benchmark clause. A long-only filter over a bull
   market is profitable in most years by construction, which is why the absolute
