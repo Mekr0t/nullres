@@ -1,0 +1,167 @@
+"""The evidence ledger.
+
+Its only job is to remember accurately, so the tests are about identity: does
+a meaningfully different config get a different fingerprint, and does a
+cosmetically different one get the same fingerprint?
+"""
+
+from __future__ import annotations
+
+import copy
+import json
+from pathlib import Path
+
+import pytest
+
+from nullres.config import load_config
+from nullres.runlog import (
+    config_distance,
+    config_hash,
+    find_similar,
+    flatten_config,
+    format_warning,
+    load_runs,
+    record_run,
+)
+
+
+@pytest.fixture
+def cfg():
+    return load_config("configs/btc_4h.toml")
+
+
+def test_flatten_walks_nested_dataclasses(cfg):
+    flat = flatten_config(cfg)
+    assert flat["data.symbol"] == "BTCUSDT"
+    assert flat["sizing.min_hold"] == cfg.sizing.min_hold
+    assert flat["cost.fee_bps"] == cfg.cost.fee_bps
+    # Lists are collapsed, not dropped — the strategy set is part of the identity.
+    assert "sma_cross" in flat["strategies"]
+
+
+def test_cosmetic_changes_do_not_change_the_fingerprint(cfg):
+    """Renaming an experiment does not make it a different experiment."""
+    other = copy.deepcopy(cfg)
+    other.name = "a-different-name"
+    other.out_dir = "somewhere/else"
+    other.data.cache_dir = "/tmp/cache"
+    assert config_hash(other) == config_hash(cfg)
+
+
+def test_meaningful_changes_do_change_the_fingerprint(cfg):
+    for path, value in [("sizing.min_hold", 999), ("cost.fee_bps", 42.0),
+                        ("label.horizon", 7), ("data.symbol", "ETHUSDT")]:
+        other = copy.deepcopy(cfg)
+        section, key = path.split(".")
+        setattr(getattr(other, section), key, value)
+        assert config_hash(other) != config_hash(cfg), f"{path} was ignored"
+
+
+def test_distance_counts_and_names_the_differences(cfg):
+    other = copy.deepcopy(cfg)
+    other.sizing.min_hold = 999
+    other.cost.fee_bps = 42.0
+
+    distance, differing = config_distance(cfg, other)
+    assert distance == 2
+    assert differing == ["cost.fee_bps", "sizing.min_hold"]
+
+    assert config_distance(cfg, copy.deepcopy(cfg))[0] == 0
+
+
+def test_records_accumulate_rather_than_overwrite(cfg, tmp_path):
+    """A ledger, not a cache. Two runs of the same config keep both records."""
+    for _ in range(3):
+        record_run(cfg, "run", runs_dir=str(tmp_path))
+    assert len(list(tmp_path.glob("*.json"))) == 3
+
+    runs = load_runs(str(tmp_path))
+    assert len(runs) == 3
+    assert len({r.id for r in runs}) == 3, "run ids collided"
+    assert len({r.config_hash for r in runs}) == 1, "same config, same fingerprint"
+
+
+def test_record_captures_provenance(cfg, tmp_path):
+    record = record_run(cfg, "robust", metrics={"sharpe": 0.5},
+                        verdict="KILLED", runs_dir=str(tmp_path))
+    assert record.verdict == "KILLED"
+    assert record.git_sha and record.git_sha != ""
+    assert record.timestamp.endswith("Z")
+    assert record.config["data.symbol"] == "BTCUSDT"
+
+    on_disk = json.loads(next(tmp_path.glob("*.json")).read_text())
+    assert on_disk["metrics"]["sharpe"] == 0.5
+
+
+def test_corrupt_records_are_skipped_not_fatal(tmp_path):
+    (tmp_path / "20260101-000000-deadbeef.json").write_text("{not json")
+    (tmp_path / "20260101-000001-cafe0000.json").write_text('{"unexpected": 1}')
+    assert load_runs(str(tmp_path)) == []
+
+
+def test_near_miss_of_a_killed_run_is_flagged(cfg, tmp_path):
+    """The capability markdown cannot provide: recognising a dead end."""
+    record_run(cfg, "robust", verdict="KILLED", runs_dir=str(tmp_path))
+    runs = load_runs(str(tmp_path))
+
+    tweaked = copy.deepcopy(cfg)
+    tweaked.sizing.min_hold = cfg.sizing.min_hold + 6      # tuning around it
+
+    hits = find_similar(tweaked, runs, max_distance=3)
+    assert hits, "re-running a killed config with one tweak was not flagged"
+    distance, differing, record = hits[0]
+    assert distance == 1 and differing == ["sizing.min_hold"]
+    assert "KILLED" in format_warning(hits)
+
+
+def test_a_genuinely_different_config_is_not_flagged(cfg, tmp_path):
+    """The warning must stay quiet, or it will be ignored."""
+    record_run(cfg, "robust", verdict="KILLED", runs_dir=str(tmp_path))
+    runs = load_runs(str(tmp_path))
+
+    different = copy.deepcopy(cfg)
+    different.data.symbol = "ETHUSDT"
+    different.data.interval = "1d"
+    different.label.horizon = 5
+    different.label.kind = "fwd_return"
+    different.sizing.min_hold = 3
+    different.model.kind = "logistic"
+
+    assert not find_similar(different, runs, max_distance=3)
+    assert format_warning([]) == ""
+
+
+def test_only_killed_runs_trigger_the_warning(cfg, tmp_path):
+    record_run(cfg, "robust", verdict="SURVIVED", runs_dir=str(tmp_path))
+    runs = load_runs(str(tmp_path))
+    assert not find_similar(cfg, runs, max_distance=3, verdict="KILLED")
+    assert find_similar(cfg, runs, max_distance=3, verdict="SURVIVED")
+
+
+def test_killing_one_strategy_does_not_condemn_another(cfg, tmp_path):
+    """`robust` pins its strategy into the logged config.
+
+    Without that, the verdict attaches to the data/label/model settings alone,
+    and killing donchian on BTCUSDT 4h would warn you off every other strategy
+    on the same bars — which is both wrong and the fastest way to teach someone
+    to ignore the warning.
+    """
+    killed = copy.deepcopy(cfg)
+    killed.strategies = ["donchian"]
+    record_run(killed, "robust", verdict="KILLED", runs_dir=str(tmp_path))
+    runs = load_runs(str(tmp_path))
+
+    another = copy.deepcopy(cfg)
+    another.strategies = ["ml_meta"]
+    assert not find_similar(another, runs, max_distance=0)
+
+    same = copy.deepcopy(cfg)
+    same.strategies = ["donchian"]
+    assert find_similar(same, runs, max_distance=0)
+
+
+def test_exact_rerun_reports_zero_distance(cfg, tmp_path):
+    record_run(cfg, "robust", verdict="KILLED", runs_dir=str(tmp_path))
+    hits = find_similar(cfg, load_runs(str(tmp_path)), max_distance=0)
+    assert hits and hits[0][0] == 0
+    assert "exact re-run" in format_warning(hits)

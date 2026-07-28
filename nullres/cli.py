@@ -38,6 +38,66 @@ def _banner(text: str) -> None:
     print(f"\n{'=' * 78}\n{text}\n{'=' * 78}")
 
 
+def _warn_if_already_killed(cfg) -> None:
+    """Check the run log before spending compute on a known dead end."""
+    from nullres.runlog import find_similar, format_warning, load_runs
+
+    warning = format_warning(find_similar(cfg, load_runs()))
+    if warning:
+        print(f"\n{warning}\n")
+
+
+def _record(cfg, command, metrics=None, verdict=None, notes="") -> None:
+    """Append to the run ledger. Never fatal — a logging failure must not
+    invalidate a result that has already been computed."""
+    from nullres.runlog import record_run
+
+    try:
+        record = record_run(cfg, command, metrics=metrics, verdict=verdict,
+                            notes=notes)
+    except OSError as exc:
+        print(f"  (run log write failed: {exc})")
+        return
+    dirty = " +uncommitted" if record.git_dirty else ""
+    print(f"\nlogged as runs/ [{record.short_id}]  "
+          f"config {record.config_hash}  git {record.git_sha}{dirty}")
+
+
+def cmd_log(cfg, args) -> int:
+    """The evidence ledger. The graveyard explains; this one remembers."""
+    from nullres.runlog import load_runs
+
+    runs = load_runs()
+    if not runs:
+        print("No runs recorded yet. Every run/robust/xsec/ablate appends one.")
+        return 0
+
+    if args.verdict:
+        runs = [r for r in runs if r.verdict == args.verdict.upper()]
+
+    _banner(f"RUN LOG — {len(runs)} record(s)")
+    print(f"\n  {'date':<12}{'id':<10}{'config':<18}{'command':<9}"
+          f"{'verdict':<10}git")
+    print("  " + "-" * 74)
+    for record in runs[-args.limit:]:
+        verdict = record.verdict or "-"
+        dirty = "+" if record.git_dirty else " "
+        print(f"  {record.timestamp[:10]:<12}{record.short_id:<10}"
+              f"{record.config_name[:17]:<18}{record.command:<9}"
+              f"{verdict:<10}{record.git_sha}{dirty}")
+
+    killed = sum(1 for r in runs if r.verdict == "KILLED")
+    survived = sum(1 for r in runs if r.verdict == "SURVIVED")
+    configs = len({r.config_hash for r in runs})
+    print(f"\n  {len(runs)} runs over {configs} distinct configs — "
+          f"{killed} KILLED, {survived} SURVIVED")
+    print("\n  That run count is also your multiple-testing exposure. Every")
+    print("  variant tried is a chance to find something by luck, which is what")
+    print("  `deflated_sharpe` discounts. A long log is not a productivity")
+    print("  metric — it is a reason to trust the best result less.")
+    return 0
+
+
 def cmd_fetch(cfg, args) -> int:
     from nullres.data import load_auxiliary
 
@@ -63,6 +123,7 @@ def cmd_run(cfg, args) -> int:
           f"model={cfg.model.kind} "
           f"cost={cfg.cost.fee_bps + cfg.cost.slippage_bps:.0f}bps/side "
           f"min_hold={cfg.sizing.min_hold}")
+    _warn_if_already_killed(cfg)
 
     if args.ablate:
         from nullres.pipeline import ablate
@@ -100,6 +161,12 @@ def cmd_run(cfg, args) -> int:
         path = out / f"{cfg.name}.json"
         path.write_text(json.dumps(results, indent=2, default=float))
         print(f"\nwrote {path}")
+
+    _record(cfg, "run", metrics={
+        name: {k: m[k] for k in ("total_return", "sharpe", "max_dd", "t_stat",
+                                 "n_trades", "deflated_sharpe")}
+        for name, m in results.items()
+    })
     return 0
 
 
@@ -220,6 +287,7 @@ def cmd_robust(cfg, args) -> int:
     symbols = [s.strip() for s in args.symbols.split(",") if s.strip()]
 
     _banner(f"ROBUSTNESS: {strategy} on {cfg.data.symbol} {cfg.data.interval}")
+    _warn_if_already_killed(cfg)
     ctx = prepare(cfg, verbose=False)
     params = cfg.params.get(strategy, {})
     print(f"\nreported parameters: {params or 'defaults'}")
@@ -272,6 +340,30 @@ def cmd_robust(cfg, args) -> int:
     else:
         print("\nThis strategy is not worth further work in its current form.")
         print("That is a cheap answer to have obtained today rather than in six months.")
+
+    # The verdict is what makes the ledger useful: it is the field `find_similar`
+    # matches on when warning about a re-run.
+    #
+    # The strategy is pinned into the logged config on purpose. `robust` takes it
+    # from --strategy rather than the file, so without this every config would
+    # inherit the verdict of whichever strategy happened to be tested last, and
+    # killing donchian would warn you off ml_meta on the same data.
+    import copy as _copy
+
+    logged = _copy.deepcopy(cfg)
+    logged.strategies = [strategy]
+    _record(logged, "robust", verdict="SURVIVED" if ok else "KILLED",
+            notes=f"strategy={strategy}; " + " | ".join(notes),
+            metrics={
+                "strategy": strategy,
+                "neighbourhood_positive": float((grid["sharpe"] > 0).mean()),
+                "neighbourhood_median": float(grid["sharpe"].median()),
+                "sign_flip_rate": float(flips) if flips == flips else None,
+                "years_beating_hold": (float((stability["excess_sharpe"] > 0).mean())
+                                       if not stability.empty else None),
+                "symbols_beating_hold": (float((transfer["vs_hold"] > 0).mean())
+                                         if "vs_hold" in transfer else None),
+            })
     return 0
 
 
@@ -323,6 +415,15 @@ def cmd_ablate(cfg, args) -> int:
         print("  NOT significant. With this few folds that is the expected outcome")
         print("  even for a real effect — it is a reason to gather more evidence,")
         print("  not a reason to believe the difference is zero.")
+
+    _record(cfg, "ablate", notes=f"group={group}", metrics={
+        "group": group,
+        "auc_with": float(a.mean()),
+        "auc_without": float(b.mean()),
+        "auc_delta": float(diff.mean()),
+        "t_stat": float(t_stat),
+        "p_value": float(p_value),
+    })
     return 0
 
 
@@ -445,6 +546,16 @@ def cmd_xsec(cfg, args) -> int:
     print("only learned 'the lowest-volatility member outperforms' has learned")
     print("long-BTC/short-alts under another name — and that book needs no model")
     print("and three trades. Beating equal_weight is not evidence of anything.")
+
+    _record(cfg, "xsec", notes=f"{len(panel.symbols)} symbols, top_n={args.top_n}",
+            metrics={
+                "n_symbols": len(panel.symbols),
+                "n_delisted": len(panel.delisted),
+                "mean_auc": float(np.nanmean(aucs)),
+                **{name: {k: m[k] for k in ("total_return", "sharpe", "max_dd",
+                                            "t_stat", "n_trades")}
+                   for name, m in results.items()},
+            })
     return 0
 
 
@@ -481,6 +592,7 @@ def cmd_features(cfg, args) -> int:
 
 COMMANDS = {
     "fetch": cmd_fetch,
+    "log": cmd_log,
     "budget": cmd_budget,
     "run": cmd_run,
     "audit": cmd_audit,
@@ -500,6 +612,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--strategy", "-s", default="ml_meta",
                         help="sweep: which strategy to sweep")
     parser.add_argument("--save", action="store_true", help="run: write metrics JSON")
+    parser.add_argument("--verdict", default=None, choices=["KILLED", "SURVIVED"],
+                        help="log: show only runs with this verdict")
+    parser.add_argument("--limit", type=int, default=25,
+                        help="log: how many recent runs to show")
     parser.add_argument("--ablate", default=None, metavar="GROUP",
                         help="run: drop a feature group (e.g. 'derivatives') "
                              "after row alignment, for a matched-sample A/B")

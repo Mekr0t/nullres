@@ -5,7 +5,18 @@ effort on the next one.
 
 ---
 
-## 0. Write down the hypothesis first
+## 0a. Check whether you already killed this
+
+```bash
+python -m nullres log
+```
+
+Eight approaches are already dead. `run` and `robust` also check automatically
+and warn when a config sits within a few parameters of something marked KILLED —
+because nobody re-reads a 300-line markdown file before every experiment, and
+eighteen months from now you will not remember why you stopped.
+
+## 0b. Write down the hypothesis first
 
 One sentence, before any code:
 

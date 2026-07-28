@@ -47,6 +47,7 @@ python -m nullres fetch  --config configs/btc_1h.toml   # cache bars (offline af
 python -m nullres audit  --config configs/btc_1h.toml   # is the harness lying to me?
 python -m nullres run    --config configs/btc_1h.toml   # backtest, with baselines
 python -m nullres robust --config configs/btc_4h.toml --strategy donchian
+python -m nullres log                                   # what have I already killed?
 ```
 
 Run `budget` **first**. It is arithmetic, it takes two seconds, and it kills
@@ -95,6 +96,19 @@ The linear pipeline is the boring part. The loop around it is the product.
 | **Execution** | decide at close `t`, fill at open `t+1`, pay fees every change |
 | **Metrics** | deflated Sharpe, t-stats, cost drag, per-period breakdowns |
 | **Robustness** | four independent attempts to falsify anything that looks good |
+
+Every run appends to `runs/` — config, git SHA, metrics, verdict — so results
+are reproducible rather than remembered, and a config that sits close to
+something already KILLED says so before it costs you an afternoon:
+
+```
+  WARNING: this config is within 1 parameter(s) of 1 run(s) already marked KILLED.
+    2026-07-28  btc_4h  robust  [7ecf45b3]  differs by: strategies
+    See docs/05-graveyard.md before spending time on this.
+```
+
+The ledger is generated; [the graveyard](docs/05-graveyard.md) that interprets
+it is written by hand. Deciding what a result *means* is the actual work.
 
 ---
 

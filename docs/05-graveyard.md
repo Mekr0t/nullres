@@ -1,7 +1,26 @@
 # 05 — The graveyard
 
-*Why each hypothesis died. For the measurements themselves, see
-[RESEARCH.md](../RESEARCH.md).*
+**This file is written by hand, on purpose.** Its value is in sentences like
+"one bear market wearing a trend-following costume" — judgements about what a
+result *means*. No amount of structured logging produces those, and a
+generated version of this file would be a table of statuses that teaches
+nobody anything.
+
+What *is* generated is the evidence underneath it. Every run appends a record to
+`runs/` — config, git SHA, metrics, verdict — so the numbers quoted here are
+reproducible rather than remembered, and so a future experiment can be warned
+that it is re-treading a dead end:
+
+```
+$ nullres log                    # the ledger
+$ nullres run --config ...       # warns if this config is near a KILLED run
+```
+
+Prose without evidence rots. Evidence without prose is a spreadsheet. Deciding
+what a result means stays the human's job; remembering it exactly stays the
+machine's.
+
+*For the measurements themselves, see [RESEARCH.md](../RESEARCH.md).*
 
 Every hypothesis this repo has killed, why it died, and what it cost to find
 out. Kept because the most expensive mistake in research is re-running a dead

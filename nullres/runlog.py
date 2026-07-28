@@ -1,0 +1,195 @@
+"""The evidence layer beneath the graveyard.
+
+Two things are being kept, and keeping them apart is the whole design:
+
+    runs/*.json          machine-written, append-only, never hand-edited.
+                         What was measured, under exactly which config, at
+                         which commit. Boring by design.
+
+    docs/05-graveyard.md hand-written. WHY it died and what it means. That
+                         judgement is the actual work and stays human.
+
+Neither half works alone. Prose without evidence rots — six months on, nobody
+can reproduce "mean AUC 0.5443". Evidence without prose is a spreadsheet that
+teaches nothing: no log entry will ever contain "one bear market wearing a
+trend-following costume". Graveyard entries cite run ids; run records point
+back at the graveyard.
+
+The one capability that genuinely needs the machine layer is recognising that
+you are about to re-run something you already killed. Markdown cannot do that.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import subprocess
+from dataclasses import asdict, dataclass, field, fields, is_dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+RUNS_DIR = "runs"
+
+# Changing these does not make an experiment a different experiment, so they are
+# excluded from the fingerprint and from distance comparisons.
+COSMETIC = {"name", "out_dir", "cache_dir"}
+
+
+@dataclass
+class RunRecord:
+    """One execution of one command against one config."""
+
+    id: str
+    timestamp: str
+    command: str
+    config_name: str
+    config_hash: str
+    git_sha: str
+    git_dirty: bool
+    config: dict[str, Any]
+    metrics: dict[str, Any] = field(default_factory=dict)
+    verdict: str | None = None          # KILLED | SURVIVED | None
+    notes: str = ""
+
+    @property
+    def short_id(self) -> str:
+        return self.id[:8]
+
+
+def flatten_config(cfg: Any, prefix: str = "") -> dict[str, Any]:
+    """Flatten nested dataclasses to {"data.symbol": "BTCUSDT", ...}."""
+    out: dict[str, Any] = {}
+    if is_dataclass(cfg):
+        items = [(f.name, getattr(cfg, f.name)) for f in fields(cfg)]
+    elif isinstance(cfg, dict):
+        items = list(cfg.items())
+    else:
+        return {prefix.rstrip("."): cfg}
+
+    for key, value in items:
+        path = f"{prefix}{key}"
+        if is_dataclass(value) or isinstance(value, dict):
+            out.update(flatten_config(value, f"{path}."))
+        elif isinstance(value, list):
+            out[path] = ",".join(map(str, value))
+        else:
+            out[path] = value
+    return out
+
+
+def _significant(flat: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in flat.items()
+            if k.rsplit(".", 1)[-1] not in COSMETIC}
+
+
+def config_hash(cfg: Any) -> str:
+    """Stable fingerprint of everything that makes this a distinct experiment."""
+    payload = json.dumps(_significant(flatten_config(cfg)), sort_keys=True, default=str)
+    return hashlib.sha256(payload.encode()).hexdigest()[:12]
+
+
+def config_distance(a: Any, b: Any) -> tuple[int, list[str]]:
+    """How many meaningful parameters differ, and which.
+
+    Used to answer "is this config a near-miss of something already killed".
+    A distance of 0 means you are re-running an identical experiment; 1-3 means
+    you are tuning around one that may already be dead.
+    """
+    fa, fb = _significant(flatten_config(a)), _significant(flatten_config(b))
+    keys = set(fa) | set(fb)
+    differing = sorted(k for k in keys if str(fa.get(k)) != str(fb.get(k)))
+    return len(differing), differing
+
+
+def _git_state(repo: Path) -> tuple[str, bool]:
+    def run(*args: str) -> str:
+        try:
+            return subprocess.run(["git", *args], cwd=repo, capture_output=True,
+                                  text=True, timeout=10).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            return ""
+
+    sha = run("rev-parse", "--short", "HEAD") or "unknown"
+    dirty = bool(run("status", "--porcelain"))
+    return sha, dirty
+
+
+def record_run(cfg: Any, command: str, metrics: dict[str, Any] | None = None,
+               verdict: str | None = None, notes: str = "",
+               runs_dir: str = RUNS_DIR, repo: Path | None = None) -> RunRecord:
+    """Append one record. Never overwrites: the log is a ledger, not a cache."""
+    repo = repo or Path.cwd()
+    now = datetime.now(timezone.utc)
+    sha, dirty = _git_state(repo)
+    chash = config_hash(cfg)
+
+    # Deterministic id from (config, command, time) so two runs never collide.
+    seed = f"{chash}|{command}|{now.isoformat()}"
+    run_id = hashlib.sha256(seed.encode()).hexdigest()[:12]
+
+    record = RunRecord(
+        id=run_id,
+        timestamp=now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        command=command,
+        config_name=getattr(cfg, "name", "unnamed"),
+        config_hash=chash,
+        git_sha=sha,
+        git_dirty=dirty,
+        config=flatten_config(cfg),
+        metrics=metrics or {},
+        verdict=verdict,
+        notes=notes,
+    )
+
+    out = Path(runs_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / f"{now:%Y%m%d-%H%M%S}-{run_id[:8]}.json"
+    path.write_text(json.dumps(asdict(record), indent=2, default=str))
+    return record
+
+
+def load_runs(runs_dir: str = RUNS_DIR) -> list[RunRecord]:
+    """Every record on disk, newest last. Corrupt files are skipped, not fatal."""
+    out = []
+    for path in sorted(Path(runs_dir).glob("*.json")):
+        try:
+            raw = json.loads(path.read_text())
+            out.append(RunRecord(**raw))
+        except (json.JSONDecodeError, TypeError, ValueError):
+            continue
+    return out
+
+
+def find_similar(cfg: Any, runs: list[RunRecord], max_distance: int = 3,
+                 verdict: str | None = "KILLED") -> list[tuple[int, list[str], RunRecord]]:
+    """Past runs whose config is within `max_distance` parameters of this one.
+
+    This is the reason the machine layer exists. Nobody re-reads a 294-line
+    markdown file before every experiment, so eighteen months from now the dead
+    end gets re-run. A config comparison does not forget.
+    """
+    hits = []
+    for record in runs:
+        if verdict and record.verdict != verdict:
+            continue
+        distance, differing = config_distance(cfg, record.config)
+        if distance <= max_distance:
+            hits.append((distance, differing, record))
+    return sorted(hits, key=lambda h: h[0])
+
+
+def format_warning(hits: list[tuple[int, list[str], RunRecord]]) -> str:
+    """Render the near-miss warning. Empty string when there is nothing to say."""
+    if not hits:
+        return ""
+    lines = [
+        f"  WARNING: this config is within {hits[0][0]} parameter(s) of "
+        f"{len(hits)} run(s) already marked KILLED."
+    ]
+    for distance, differing, record in hits[:3]:
+        changed = ", ".join(differing[:4]) or "nothing — this is an exact re-run"
+        lines.append(f"    {record.timestamp[:10]}  {record.config_name:<16} "
+                     f"{record.command:<8} [{record.short_id}]  differs by: {changed}")
+    lines.append("    See docs/05-graveyard.md before spending time on this.")
+    return "\n".join(lines)
