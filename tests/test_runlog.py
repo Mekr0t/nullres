@@ -234,6 +234,37 @@ def test_cli_record_helper_accepts_every_field_commands_pass(cfg, monkeypatch, t
     assert json.loads(written[0].read_text())["variants"] == 7
 
 
+def test_the_ledger_does_not_dirty_its_own_repo(cfg, tmp_path, monkeypatch):
+    """`git_dirty` must mean "the CODE was uncommitted", nothing else.
+
+    Writing a record puts a file in `runs/`, which shows up in `git status`. So
+    the first run of a session recorded clean and every one after it recorded
+    dirty — against completely pristine code. A flag that is true almost always
+    carries no information, and this one exists to tell you whether the recorded
+    SHA reproduces the result.
+    """
+    import subprocess
+
+    from nullres.runlog import _git_state
+
+    repo = tmp_path
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.email", "t@t"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=repo, check=True)
+    (repo / "code.py").write_text("x = 1\n")
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-qm", "init"], cwd=repo, check=True)
+
+    assert _git_state(repo)[1] is False, "a clean checkout is not dirty"
+
+    (repo / "runs").mkdir()
+    (repo / "runs" / "20260101-000000-abcd1234.json").write_text("{}")
+    assert _git_state(repo)[1] is False, "the ledger's own output is not a code change"
+
+    (repo / "code.py").write_text("x = 2\n")
+    assert _git_state(repo)[1] is True, "an actual code change must still register"
+
+
 def test_a_logging_failure_never_kills_a_completed_run(cfg, monkeypatch, capsys):
     """Bookkeeping must not destroy a result that already computed."""
     from nullres import cli

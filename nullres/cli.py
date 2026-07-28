@@ -88,14 +88,14 @@ def cmd_log(cfg, args) -> int:
 
     _banner(f"RUN LOG — {len(runs)} record(s)")
     print(f"\n  {'date':<12}{'id':<10}{'config':<18}{'command':<9}"
-          f"{'verdict':<10}git")
+          f"{'verdict':<14}git")
     print("  " + "-" * 74)
     for record in runs[-args.limit:]:
         verdict = record.verdict or "-"
         dirty = "+" if record.git_dirty else " "
         print(f"  {record.timestamp[:10]:<12}{record.short_id:<10}"
               f"{record.config_name[:17]:<18}{record.command:<9}"
-              f"{verdict:<10}{record.git_sha}{dirty}")
+              f"{verdict:<14}{record.git_sha}{dirty}")
 
     from nullres.runlog import count_trials, unrecorded_variants
 

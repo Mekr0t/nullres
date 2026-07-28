@@ -126,8 +126,8 @@ it is written by hand. Deciding what a result *means* is the actual work.
 
 ## Example: the tool doing its job
 
-`donchian` on 4h looked like the best result in the project — Sharpe 0.52
-against buy & hold's 0.33, on 66 untuned trades, with half the drawdown.
+`donchian` on 4h looked like the best result in the project — Sharpe 0.59
+against buy & hold's 0.38, on 66 untuned trades, with half the drawdown.
 
 ```
 $ python -m nullres robust --config configs/btc_4h.toml --strategy donchian
@@ -139,21 +139,36 @@ $ python -m nullres robust --config configs/btc_4h.toml --strategy donchian
   2024     60.9%    1.32 |   121.7%    1.53  |   -0.21
   2025     -8.4%   -0.41 |    -6.3%   -0.15  |   -0.27
 
-VERDICT: KILLED
-  STABILITY FAIL: beat buy & hold in only 40% of years
+VERDICT: INCONCLUSIVE
+  STABILITY INCONCLUSIVE: beat the benchmark in 2 of 5 years (40%), but mean
+  excess -0.04 (p=0.840) is not distinguishable from zero. At n=5 this count
+  gate passes 50% of the time even for a strategy exactly as good as the
+  benchmark, so failing it on its own decides nothing.
 ```
 
 The entire five-year advantage was **2022**. It is a drawdown-reduction
 mechanism, not an alpha source — one bear market wearing a trend-following
 costume. Six lines of output, one afternoon, instead of six months.
 
+Note what the tool does *not* claim. It reports that five years cannot separate
+this from buy & hold, and stops. The kill is in [the graveyard](docs/05-graveyard.md),
+argued from the concentration in 2022 and a mean excess of zero. Machine reports
+evidence; human decides meaning.
+
 ---
 
 ## Results
 
-**Eight approaches tested. Eight dead.** Full numbers in
-[RESEARCH.md](RESEARCH.md); the reasoning for each in
+**Eight approaches tested. Eight abandoned — seven killed on the evidence, one
+because the evidence could not settle it and the reasoning could.** Full numbers
+in [RESEARCH.md](RESEARCH.md); the argument for each in
 [the graveyard](docs/05-graveyard.md).
+
+That distinction is not pedantry. `donchian` is the one, and its battery now
+returns INCONCLUSIVE: five years cannot separate it from buy & hold. It is still
+abandoned, on the grounds that its entire advantage sits in 2022 and its mean
+excess is zero — but that is a judgement, and the tool no longer pretends to
+have proved it.
 
 | approach | how it died |
 |---|---|
@@ -164,25 +179,28 @@ costume. Six lines of output, one afternoon, instead of six months.
 | volatility targeting | crypto has no leverage effect to exploit |
 | funding / open interest | +0.012 AUC — real, doesn't clear 24bps |
 | cross-sectional (11) | loses to a 3-trade static bet |
-| cross-sectional (136) | **AUC 0.5575, t-stat 3.26 — dies to slippage** |
+| cross-sectional (136) | **AUC 0.5575, t-stat 3.19 — dies to slippage** |
 
 That last row is the one to read. The signal is real: shuffled labels give
 0.5018, delisted symbols contribute 2% of P&L, and it survives four independent
-leak checks. It dies twice over anyway — once to costs (Sharpe 1.61 at 3bps,
-0.15 at 100bps), and once to arithmetic nobody enjoys:
+leak checks. It dies anyway — to costs (Sharpe 1.80 at 3bps, **0.13** at
+100bps), and it barely clears the arithmetic nobody enjoys:
 
 ```
-  trials      1      6     25    100    200    500
-  deflated  1.61   0.88   0.49   0.19   0.05  -0.11
+  trials      1      6     25    100    214    343   1000
+  deflated  1.80   1.07   0.68   0.38   0.23   0.15  -0.03
 ```
 
-~214 parameter combinations were explored to produce these results. Deflating
-the best one against that count leaves **0.05** — indistinguishable from zero.
-`nullres` reads the trial count from its own run ledger, so this correction
-applies itself rather than depending on anyone remembering to.
+~214 parameter combinations were explored before the ledger existed, and it has
+recorded 129 since. Deflating the best result against that leaves **0.15–0.23** —
+positive, and far too small to trade. `nullres` reads the count from its own run
+ledger, so the correction applies itself rather than depending on anyone
+remembering to.
 
-**Does the framework work?** It told me eight times that I had nothing, then
-told me my own headline number was luck. That is the product.
+**Does the framework work?** It told me eight times that I had nothing, then cut
+my own headline number to near-zero — and when I made its verdicts honest about
+their own sample size, it took back one of the eight kills and told me it had
+never had the evidence. That is the product.
 
 ---
 

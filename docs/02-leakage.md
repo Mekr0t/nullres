@@ -175,8 +175,14 @@ yields a best-of-100 Sharpe around 0.6 for free.
 **The hard part is counting honestly.** `n_trials` was originally the number of
 strategies in the current run — six — for a project that had explored 214
 parameter combinations. That understated the penalty on every result published
-here. Deflating the best one (Sharpe 1.61) against six trials leaves 0.88;
-against the true count it leaves **0.05**.
+here. Deflating the best one (Sharpe 1.80) against six trials leaves 1.07;
+against the true count it leaves **0.15–0.23**, which is positive and far too
+small to trade.
+
+Counting honestly cuts both ways. Summing every recorded run made the correction
+a function of how often commands were *executed* rather than how many hypotheses
+were tested — repeating one experiment five times deflated every result without
+testing anything new. Each distinct (config, command) pair now contributes once.
 
 The count now comes from the run ledger (`runs/`), which records how many
 variants each run evaluated — a 25-cell sweep is 25 trials, not one — plus a

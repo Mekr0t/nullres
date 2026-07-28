@@ -24,31 +24,55 @@ the number of trials. It was originally wired to the count of strategies in a
 single run — six — which badly understated the exposure. Re-deflating the
 headline results honestly:
 
-| result | sharpe | deflated @ 6 | deflated @ 214 |
-|---|---|---|---|
-| xsec wide k=2 | 1.61 | 0.88 | **0.05** |
-| xsec wide k=5 | 1.53 | 0.80 | **-0.03** |
-| xsec wide static_vs_alts | 1.40 | 0.67 | -0.16 |
-| xsec wide k=15 | 1.05 | 0.32 | -0.51 |
-| xsec 11-symbol static | 0.78 | 0.05 | -0.78 |
-| donchian 4h | 0.52 | -0.09 | -0.78 |
-| BTC buy & hold, 1h | 0.46 | -0.12 | -0.77 |
+| result | sharpe | deflated @ 6 | deflated @ 214 | deflated @ 343 |
+|---|---|---|---|---|
+| xsec wide k=2 | 1.80 | 1.07 | **0.23** | **0.15** |
+| xsec wide k=5 | 1.72 | 0.99 | 0.15 | 0.07 |
+| xsec wide static_vs_alts | 1.60 | 0.87 | 0.03 | -0.05 |
+| xsec wide k=10 | 1.50 | 0.77 | -0.07 | -0.15 |
+| xsec wide k=15 | 1.20 | 0.47 | -0.37 | -0.45 |
+| xsec 11-symbol static | 0.89 | 0.16 | -0.68 | -0.76 |
+| donchian 4h | 0.59 | -0.14 | -0.98 | -1.06 |
+| BTC buy & hold, 1h | 0.50 | -0.23 | -1.07 | -1.15 |
 
-**Nothing in this repository survives its own multiple-testing correction.**
-The best result — the wide cross-sectional book, Sharpe 1.61, t-stat 3.26 — has
-a deflated Sharpe of **0.05**, which is indistinguishable from zero. That is
-before its costs are made realistic, which separately takes it to -0.49.
+**Almost nothing in this repository survives its own multiple-testing
+correction, and what does survive is too small to trade.** The best result — the
+wide cross-sectional book, Sharpe 1.80, t-stat 3.19 — deflates to **0.23** at
+the 214 trials estimated before the ledger existed, and to **0.15** once the
+ledger's own 129 are added. Positive, and far too small to act on. Every other
+result in the table is at or below zero.
+
+An earlier version of this file reported that best figure as **0.05** and
+claimed nothing survived at all. Two corrections moved it: metrics are now
+measured on the out-of-sample window rather than diluted across bars the
+strategy never traded, which raised every Sharpe by `1/sqrt(oos fraction)`; and
+the trial count now collapses repeated runs of the same experiment instead of
+summing them. The conclusion is weaker than it was, and it should be — the old
+number was the product of two measurement errors that happened to point the same
+way.
+
+It does not rescue the strategy. The cost sweep below still takes k=2 from 1.80
+to **0.13** at realistic alt slippage, and that argument never depended on the
+deflation.
 
 Sensitivity, so the number is not taken as precise:
 
 ```
-  trials      1      6     25    100    200    500   1000
-  deflated  1.61   0.88   0.49   0.19   0.05  -0.11  -0.22
+  trials      1      6     25    100    214    343    500   1000
+  deflated  1.80   1.07   0.68   0.38   0.23   0.15   0.08  -0.03
 ```
 
-The trial count is now read from the run ledger rather than assumed, and
+The trial count is read from the run ledger rather than assumed, and
 `prior_trials` in each config declares the exposure that predates it.
 `nullres run` prints the count it used.
+
+**A caveat on the count itself.** `prior_trials = 214` is an estimate of work
+done before the ledger existed. Reproducing those same experiments now also
+records them in the ledger, so they are counted twice — verifying a result makes
+its deflation harsher without any new hypothesis being tested. The 343 column is
+therefore an upper bound and 214 a lower one. The honest reading is that the
+best result sits somewhere in **0.15 to 0.23**, and that the distinction does
+not matter, because 100bps of slippage takes it to 0.13 regardless.
 
 ---
 
@@ -60,32 +84,35 @@ Purged walk-forward, 12bps/side, out-of-sample 2020-12 to 2025-12.
 
 | strategy | total | sharpe | max dd | trades | cost drag |
 |---|---|---|---|---|---|
-| buy & hold | 355.3% | 0.46 | -77.2% | 2 | 0.2% |
-| sma_cross | 173.4% | 0.45 | -57.6% | 308 | 30.9% |
-| donchian | 107.7% | 0.38 | -54.7% | 304 | 30.6% |
-| ml_direction | -15.2% | -0.06 | -69.6% | 132 | 17.7% |
-| ml_meta | -35.4% | -0.18 | -72.4% | 127 | 14.9% |
+| buy & hold | 355.8% | 0.50 | -77.2% | 1 | 0.1% |
+| sma_cross | 173.7% | 0.49 | -57.6% | 307 | 30.8% |
+| donchian | 108.0% | 0.41 | -54.7% | 303 | 30.5% |
+| ml_direction | -15.1% | -0.07 | -69.6% | 131 | 17.6% |
+| ml_meta | -35.4% | -0.20 | -72.4% | 127 | 14.9% |
+| mean_reversion | -92.8% | -1.16 | -94.0% | 1,330 | 79.7% |
 
 ### 4h (9,980 OOS bars)
 
 | strategy | total | sharpe | max dd | trades | cost drag |
 |---|---|---|---|---|---|
-| donchian | 144.4% | **0.52** | -40.7% | 66 | 7.6% |
-| buy & hold | 148.6% | 0.33 | -77.0% | 2 | 0.2% |
-| sma_cross | 74.8% | 0.30 | -56.2% | 62 | 7.2% |
-| vol_target | 63.6% | 0.21 | -73.1% | 274 | 5.2% |
-| ml_direction | -29.2% | -0.15 | -49.4% | 112 | 16.5% |
-| ml_meta | -73.3% | -0.66 | -79.7% | 113 | 13.8% |
+| donchian | 144.4% | **0.59** | -40.7% | 66 | 7.6% |
+| buy & hold | 148.9% | 0.38 | -77.0% | 1 | 0.1% |
+| sma_cross | 74.8% | 0.35 | -56.2% | 62 | 7.2% |
+| vol_target | 63.8% | 0.24 | -73.1% | 273 | 5.0% |
+| ml_direction | -29.2% | -0.17 | -49.4% | 112 | 16.5% |
+| mean_reversion | -69.3% | -0.66 | -86.0% | 290 | 29.4% |
+| ml_meta | -73.3% | -0.75 | -79.7% | 112 | 13.7% |
 
 ### 1d (1,424 OOS bars)
 
 | strategy | total | sharpe | max dd | trades | cost drag |
 |---|---|---|---|---|---|
-| buy & hold | 101.6% | 0.29 | -66.7% | 1 | 0.1% |
-| sma_cross | 85.8% | **0.36** | -37.3% | 8 | 1.0% |
-| donchian | 48.9% | 0.30 | -25.7% | 12 | 1.4% |
-| ml_meta | 20.8% | 0.13 | -40.1% | 67 | 7.8% |
-| ml_direction | 9.6% | 0.04 | -64.3% | 65 | 10.2% |
+| buy & hold | 101.6% | 0.35 | -66.7% | 1 | 0.1% |
+| sma_cross | 85.8% | **0.43** | -37.3% | 8 | 1.0% |
+| donchian | 48.9% | 0.36 | -25.7% | 12 | 1.4% |
+| ml_meta | 20.8% | 0.15 | -40.1% | 67 | 7.8% |
+| ml_direction | 9.6% | 0.05 | -64.3% | 65 | 10.2% |
+| mean_reversion | -58.8% | -0.59 | -66.1% | 37 | 4.3% |
 
 Daily is the only config where ML returns are positive, and they are the least
 trustworthy numbers here: per-fold AUC decays monotonically and ends *below*
@@ -100,8 +127,13 @@ scales as `sqrt(bar length)`:
 | timeframe | sigma/bar | break-even bars @51% | duration |
 |---|---|---|---|
 | 1h | 0.6715% | 502 | 20.9 days |
-| 4h | 1.3430% | 133 | 22.2 days |
-| 1d | 3.2912% | 21 | 21.0 days |
+| 4h | 1.3054% | 133 | 22.1 days |
+| 1d | 3.2912% | 21 | 20.9 days |
+
+Each sigma is the realised standard deviation of that timeframe's log returns.
+The 4h row previously read 1.3430%, which is `0.6715% x 2` — the sqrt-scaling
+rule, not a measurement, quoted in a table whose entire purpose is to check that
+rule against reality.
 
 Pinned by `tests/test_costs.py::test_breakeven_duration_is_invariant_to_timeframe`.
 
@@ -133,16 +165,21 @@ Four of the top ten are derivatives. Funding *rate* itself carries nothing:
 
 | test | ml_direction | ml_meta |
 |---|---|---|
-| neighbourhood | FAIL — 39% sign flips vs 38% expected | FAIL — 48% vs 48% |
-| stability | ok — 2 of 3 years | FAIL — 0 of 3 |
-| transfer | FAIL — 2 of 4 symbols | FAIL — 2 of 4 |
+| neighbourhood | **FAIL** — 39% sign flips vs 38% expected | **FAIL** — 48% vs 48% |
+| stability | ok — 2 of 3 years, mean excess -0.07 (p=0.96) | inconclusive — 0 of 3, mean -0.99 (p=0.18) |
+| transfer | inconclusive — 2 of 4 symbols | inconclusive — 2 of 4, mean -0.04 (p=0.94) |
+
+Both are **KILLED**, and on the neighbourhood test alone: their grids are no
+smoother than randomly scattered signs. The stability and transfer counts point
+the same way but cannot carry a verdict at three years and four symbols — see
+the note on gate power in [01 — Workflow](docs/01-workflow.md).
 
 The models disagree about which assets they work on, which is the tell:
 
 ```
                  ETH     BNB     SOL     XRP    (Sharpe vs buy & hold)
-  ml_direction  +0.02   -0.71   +0.81   -1.62
-  ml_meta       -1.13   -0.13   +0.59   +0.52
+  ml_direction  +0.02   -0.90   +1.03   -2.07
+  ml_meta       -1.43   -0.16   +0.75   +0.67
 ```
 
 ---
@@ -156,10 +193,10 @@ Out-of-sample 2022-10-30 to 2025-12-24, 6,909 bars. Mean AUC **0.5443**,
 
 | book | total | sharpe | max dd | t-stat | trades |
 |---|---|---|---|---|---|
-| static_vs_alts | 219.6% | **0.78** | -41.8% | 1.57 | 3 |
-| btc_only | 227.9% | 0.71 | -34.7% | 1.44 | 2 |
-| longshort_k2 | 161.5% | 0.50 | -78.6% | 1.01 | 166 |
-| equal_weight | 15.0% | 0.06 | -57.7% | 0.12 | 4 |
+| static_vs_alts | 220.1% | **0.89** | -41.8% | 1.57 | 2 |
+| btc_only | 228.2% | 0.81 | -34.7% | 1.44 | 1 |
+| longshort_k2 | 170.5% | 0.59 | -78.6% | 1.05 | 165 |
+| equal_weight | 15.1% | 0.07 | -57.7% | 0.12 | 3 |
 
 Verification: shuffled labels 0.4970; survivors-only 0.5518 (so not
 death-detection); per-symbol accuracy spread 0.093, BTC 0.585 vs SOL 0.491.
@@ -171,22 +208,29 @@ Top-40 by trailing dollar volume, 9 delisted symbols retained. Mean AUC
 
 | book | total | sharpe | max dd | t-stat | trades |
 |---|---|---|---|---|---|
-| longshort_k2 | 2.39e+02x | **1.61** | -67.9% | **3.26** | 192 |
-| longshort_k5 | 2481.0% | 1.53 | -58.8% | 3.09 | 211 |
-| static_vs_alts | 1078.9% | 1.40 | -40.3% | 2.83 | 628 |
-| longshort_k10 | 649.0% | 1.32 | -53.1% | 2.66 | 237 |
-| longshort_k15 | 252.9% | 1.05 | -43.8% | 2.11 | 271 |
-| btc_only | 227.9% | 0.71 | -34.7% | 1.44 | 2 |
-| equal_weight | -65.5% | -0.41 | -78.5% | -0.83 | 569 |
+| longshort_k2 | 2.12e+02x | **1.80** | -67.9% | **3.19** | 191 |
+| longshort_k5 | 2375.9% | 1.72 | -58.8% | 3.06 | 208 |
+| static_vs_alts | 1080.8% | 1.60 | -40.3% | 2.84 | 627 |
+| longshort_k10 | 654.0% | 1.50 | -53.1% | 2.67 | 234 |
+| longshort_k15 | 253.9% | 1.20 | -43.8% | 2.12 | 268 |
+| btc_only | 228.2% | 0.81 | -34.7% | 1.44 | 1 |
+| equal_weight | -65.5% | -0.47 | -78.5% | -0.83 | 568 |
+
+The k=2 total fell from a previously reported 2.39e+02x because the book used to
+keep trading past the last bar it had a prediction for. `panel_positions` holds
+its last weights to the end of the panel, and only the *benchmarks* were
+restricted to the out-of-sample window — so the model's books collected ~42 bars
+that `static_vs_alts` and `btc_only` were zeroed out of. Both sides are now
+measured on the same bars.
 
 **Cost sensitivity — the decisive measurement.** Fee held at 5bps:
 
-| slippage/side | k=2 | k=5 | static |
-|---|---|---|---|
-| 3bps | 1.61 | 1.53 | 1.40 |
-| 25bps | 1.28 | 1.06 | 1.36 |
-| 50bps | 0.90 | 0.53 | 1.31 |
-| 100bps | **0.15** | **-0.49** | 1.20 |
+| slippage/side | k=2 | k=5 | k=10 | k=15 | static |
+|---|---|---|---|---|---|
+| 3bps | 1.80 | 1.72 | 1.50 | 1.20 | 1.60 |
+| 25bps | 1.42 | 1.19 | 0.91 | 0.58 | 1.55 |
+| 50bps | 0.99 | 0.59 | 0.23 | -0.11 | 1.49 |
+| 100bps | **0.13** | **-0.57** | -1.03 | -1.39 | 1.38 |
 
 The model's column collapses; the static book barely moves. What survives
 realistic alt slippage needs no model — and is hindsight, since BTC is its long
@@ -221,3 +265,11 @@ python -m nullres xsec   --config configs/xsec_4h.toml --universe 2021-12 \
 Pinned dependency versions are in `requirements.txt`. Backtest numbers are only
 comparable across runs when the numerics are identical — a changed default in a
 pandas rolling operation can shift every feature without failing a test.
+
+**What is not reproducible from a config.** The "Verification" figures quoted
+above — shuffled-label AUCs of 0.4970 and 0.5018, the survivors-only 0.5518, the
+per-symbol accuracy spread of 0.093, the 2% delisted P&L contribution and the
+0.15 expected tail-event count — came from one-off analyses whose code was never
+committed. They are the only numbers in this file that no command regenerates,
+which makes them exactly the numbers you should trust least. Either the analyses
+belong in the repo as a command, or the claims belong in prose without figures.

@@ -27,7 +27,7 @@ def load_auxiliary(cfg, verbose: bool = True, bars=None):
     For synthetic data the auxiliary frames are generated as pure noise rather
     than skipped. That keeps the null control running the SAME feature pipeline
     as a live config — otherwise the random-walk check would exercise 32
-    features while the real run uses 47, and a broken funding join would never
+    features while the real run uses 46, and a broken funding join would never
     reach the one test designed to catch fabricated edge.
     """
     if cfg.source == "synthetic":

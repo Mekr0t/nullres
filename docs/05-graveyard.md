@@ -35,7 +35,8 @@ worth more than a positive one you can't reproduce.
 
 **Status:** dead. **Cost to disprove:** the original `baseline.py`.
 
-Out-of-sample accuracy 54.25%, genuinely ~2.4σ above coin-flip, and it still
+Out-of-sample accuracy 54.25% over 47,502 bars — 18.5σ above coin-flip on the
+iid reading, ~3.8σ after deflating for the 24-bar label overlap — and it still
 lost 100%. It changed position 15,527 times in 47,502 bars; at 12bps that is
 18.6 in log cost. The model was never the problem.
 
@@ -52,8 +53,8 @@ Fold AUCs across every timeframe and label: **0.50–0.53**. On daily the AUCs
 decay monotonically across folds and end *below* coin-flip (0.548 → 0.541 →
 0.422 → 0.422) — a model fitting a regime that then ended.
 
-Permutation importance on 32 features: only `vol_72` clears 0.01, and a third
-score negative.
+Permutation importance on 32 features: only `vol_72` clears 0.01 (0.0244, next
+is 0.0084), and 13 of the 32 score negative.
 
 **Lesson:** 32 technical indicators derived from OHLCV are 32 views of the same
 four numbers. The information is not there to be extracted.
@@ -70,7 +71,7 @@ versus 0.67% for hourly, so costs should matter less. But volatility scales as
 **duration is invariant**:
 
 ```
-1h   502 bars = 20.9 days      4h   133 bars = 22.2 days      1d   21 bars = 21.0 days
+1h   502 bars = 20.9 days      4h   133 bars = 22.1 days      1d   21 bars = 20.9 days
 ```
 
 **Lesson:** choose the timeframe for signal quality and sample size; choose the
@@ -81,14 +82,25 @@ holding period to beat costs. Pinned by
 
 ## Donchian breakout on 4h
 
-**Status:** dead as an alpha source. Alive as a drawdown tool, with caveats.
+**Status:** dead as an alpha source — killed by judgement, not by the machine.
+Alive as a drawdown tool, with caveats.
 
-Looked like the best thing in the repo: Sharpe 0.52 vs buy & hold's 0.33,
+Looked like the best thing in the repo: Sharpe 0.59 vs buy & hold's 0.38,
 -41% max drawdown vs -77%, on 66 untuned trades. Survived the parameter
-neighbourhood test (100% of 19 cells positive) and cross-symbol transfer
-(positive on ETH, BNB, SOL, XRP).
+neighbourhood test (100% of 19 cells positive, no sign flips) and cross-symbol
+transfer (beat hold on 3 of 4: ETH, SOL, XRP; lost on BNB).
 
-Died on sub-period stability once buy & hold was placed beside it:
+**The battery now returns INCONCLUSIVE, not KILLED, and that is the honest
+answer.** Its mean excess Sharpe across the five years is **-0.04 with p=0.84** —
+statistically indistinguishable from simply holding. The old KILLED verdict came
+from a count gate ("beat hold in only 40% of years") that fires on a strategy
+exactly as good as hold half the time at n=5. That was never evidence.
+
+The kill stands anyway, on the reasoning below rather than on the gate — which
+is the division of labour this repo claims: the machine reports what the
+evidence supports, the graveyard decides what it means.
+
+The case for killing it, once buy & hold is placed beside it:
 
 ```
   year     excess sharpe
@@ -100,11 +112,21 @@ Died on sub-period stability once buy & hold was placed beside it:
 ```
 
 The whole five-year advantage is 2022, where it cut a -64.7% year to -26.8%.
-In every trending year it surrendered roughly half the rally.
+In every trending year it surrendered roughly half the rally. A mechanism that
+pays off in exactly one of five years, and whose five-year mean excess is zero,
+is a drawdown tool — you would hold it for the -41% instead of -77%, not for
+return.
 
 **Lesson:** a long-only filter over a bull market is profitable most years by
 construction. Judge against the benchmark per period, not against zero. This
 finding is what turned `verdict()` from an absolute test into an excess one.
+
+**Second lesson, learned later and more expensively.** The original entry said
+this "died on sub-period stability", and it had not — a 2-of-5 count is what a
+coin flip produces half the time. The number that actually supports the kill is
+the mean excess of -0.04, which says the rule adds nothing on average, and the
+2022 concentration, which says what little it does is one regime. Counting
+periods felt like evidence and was not.
 
 ---
 
@@ -142,8 +164,15 @@ cuts the best periods as hard as the worst.
 the position sits at the cap on 54% of bars and can never exceed it, so it only
 ever holds *less* than buy & hold — and pays fees to do so.
 
-Battery verdict: **KILLED**. Beat buy & hold in **0% of years**; negative on 3
-of 4 other symbols.
+Battery verdict: **KILLED**, and decisively — this one needs no interpretation.
+It beat buy & hold in **0 of 5 years**, and the mean excess Sharpe is **-0.22
+with p=0.008**. That is evidence, not an unlucky count: the rule is reliably
+worse than the thing you would have done anyway. It is also negative against
+hold on all four other symbols, and negative in absolute terms on three.
+
+Worth contrasting with `donchian` above, which the old battery killed on the
+same "0% / 40% of years" style of count. `vol_target` survives the stricter test
+and donchian does not — the two were never the same finding.
 
 **Lesson:** a real statistical regularity (vol clustering) is not the same as
 an exploitable one. The regularity has to connect to returns through some
@@ -286,10 +315,10 @@ are the same column. A model that learned the first has learned the second.
 
 ```
   book                 total   sharpe   max dd  t-stat  trades
-  static_vs_alts      219.6%     0.78   -41.8%    1.57       3
-  btc_only            227.9%     0.71   -34.7%    1.44       2
-  longshort_k2        161.5%     0.50   -78.6%    1.01     166
-  equal_weight         15.0%     0.06   -57.7%    0.12       4
+  static_vs_alts      220.1%     0.89   -41.8%    1.57       2
+  btc_only            228.2%     0.81   -34.7%    1.44       1
+  longshort_k2        170.5%     0.59   -78.6%    1.05     165
+  equal_weight         15.1%     0.07   -57.7%    0.12       3
 ```
 
 Long BTC, short everything else, rebalance never. Three trades. It beats the
@@ -352,7 +381,7 @@ k=15 is -43.8% against the narrow book's -67.9%. Diversification did its job.
 | delisted contribution | 2% of gross P&L — not death-detection |
 | contributor spread | STORJ, BNB, BAKE, BEL long; ETH, DOGE, TRB, REEF short |
 
-At the configured 8bps the k=2 book returns **239x, Sharpe 1.61, t-stat 3.26** —
+At the configured 8bps the k=2 book returns **212x, Sharpe 1.80, t-stat 3.19** —
 the only t-stat above 3 this project has produced.
 
 ### Why it is still dead
@@ -362,10 +391,10 @@ fiction for them:
 
 ```
   slippage   k=2    k=5   static
-     3bps   1.61   1.53    1.40
-    25bps   1.28   1.06    1.36
-    50bps   0.90   0.53    1.31
-   100bps   0.15  -0.49    1.20      <- Sharpe
+     3bps   1.80   1.72    1.60
+    25bps   1.42   1.19    1.55
+    50bps   0.99   0.59    1.49
+   100bps   0.13  -0.57    1.38      <- Sharpe
 ```
 
 The model's column collapses. `static_vs_alts` barely moves, because it spreads
@@ -400,14 +429,14 @@ already yields NaN across holes.*
 ## Still open
 
 - **A better primary rule for `ml_meta`.** The meta-labeller currently filters a
-  rule that is right 49.7% of the time. Filtering a coin flip yields a filtered
+  rule that is right 49.9% of the time. Filtering a coin flip yields a filtered
   coin flip.
 - **Order-book imbalance and on-chain flows.** The remaining sources of
   genuinely new information, now that funding and open interest are in.
 - **Lower-cost execution.** The clear front-runner, and the only lever never
   pulled. Eight approaches have now died on turnover, and the wide
-  cross-sectional sweep put a number on it: the same book is Sharpe **1.53 at
-  3bps and -0.49 at 100bps**. Nothing else tried here — features, labels,
+  cross-sectional sweep put a number on it: the same book is Sharpe **1.72 at
+  3bps and -0.57 at 100bps**. Nothing else tried here — features, labels,
   models, timeframes, universes — moved a result by remotely that much. Maker-
   only execution, or a venue where these names are not 50bps wide, is the one
   change that could revive a dead result rather than produce a new one.

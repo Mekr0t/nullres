@@ -113,7 +113,15 @@ def config_distance(a: Any, b: Any) -> tuple[int, list[str]]:
     return len(differing), differing
 
 
-def _git_state(repo: Path) -> tuple[str, bool]:
+def _status_path(line: str) -> str:
+    """The path out of one `git status --porcelain` line."""
+    path = line[3:].strip()
+    if " -> " in path:                      # a rename; judge the destination
+        path = path.split(" -> ", 1)[1].strip()
+    return path.strip('"')
+
+
+def _git_state(repo: Path, runs_dir: str = RUNS_DIR) -> tuple[str, bool]:
     def run(*args: str) -> str:
         try:
             return subprocess.run(["git", *args], cwd=repo, capture_output=True,
@@ -122,7 +130,19 @@ def _git_state(repo: Path) -> tuple[str, bool]:
             return ""
 
     sha = run("rev-parse", "--short", "HEAD") or "unknown"
-    dirty = bool(run("status", "--porcelain"))
+
+    # `git_dirty` answers one question: was the CODE that produced this result
+    # uncommitted, so that the recorded SHA does not reproduce it? The ledger's
+    # own output must not count toward that. Writing a record dirties the tree,
+    # so every run after the first in a session reported dirty against pristine
+    # code — the flag was true almost always, which is the same as saying
+    # nothing. Changes under `runs/` are therefore ignored.
+    prefix = runs_dir.rstrip("/") + "/"
+    dirty = any(
+        not _status_path(line).startswith(prefix)
+        for line in run("status", "--porcelain").splitlines()
+        if line.strip()
+    )
     return sha, dirty
 
 
