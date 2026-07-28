@@ -18,6 +18,7 @@ Marked `slow` (~1-2 min). CI runs it on every push:
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from nullres.config import load_config
@@ -90,3 +91,34 @@ def test_the_control_can_detect_a_real_edge():
         f"planted edge did not survive data generation (rho={rho:.4f}); "
         f"the positive control is broken"
     )
+
+
+def test_unknown_interval_refuses_to_guess_the_bar_spacing():
+    """A calibration instrument must not silently generate the wrong bars.
+
+    `_FREQ.get(interval, "h")` meant a 6h config produced HOURLY synthetic bars
+    while the pipeline annualised them at 1,460 bars/year — the null control
+    mis-calibrated by a factor of six, silently, in the one test the docs call
+    the most useful in the repo.
+    """
+    from nullres.config import BARS_PER_YEAR
+    from nullres.data.synthetic import _FREQ
+
+    missing = sorted(set(BARS_PER_YEAR) - set(_FREQ))
+    assert not missing, (
+        f"intervals accepted by BARS_PER_YEAR but with no synthetic bar "
+        f"spacing: {missing}. The null control cannot run on them."
+    )
+
+    with pytest.raises(ValueError, match="no synthetic bar spacing"):
+        synthetic_bars(n=100, interval="3h")
+
+
+def test_synthetic_bars_honour_the_requested_interval():
+    for interval, expected in (("1h", "1h"), ("4h", "4h"), ("6h", "6h"),
+                               ("1d", "1D")):
+        bars = synthetic_bars(n=50, interval=interval)
+        spacing = bars.index[1] - bars.index[0]
+        assert spacing == pd.Timedelta(expected), (
+            f"{interval} bars are spaced {spacing}, not {expected}"
+        )

@@ -5,7 +5,7 @@ catch the leak, only reading the label definition would have. That is an
 unacceptable place to leave things — humans re-read code badly, and every new
 feature is a fresh chance to introduce lookahead.
 
-These four checks catch the overwhelming majority of leaks automatically:
+These five checks catch the overwhelming majority of leaks automatically:
 
   1. POINT-IN-TIME    Recompute features using only bars <= t and assert row t
                       is unchanged. Catches any use of future data in feature
@@ -23,6 +23,12 @@ These four checks catch the overwhelming majority of leaks automatically:
   4. SHUFFLED LABEL   Retrain with labels randomly permuted. Out-of-sample
                       accuracy must collapse to the base rate. If it does not,
                       information is reaching the model through a side channel.
+
+  5. SURVIVORSHIP     A multi-symbol universe spanning a period that killed
+                      assets, containing none of them, was filtered by survival.
+                      Reports `n/a` rather than PASS on a single-symbol config —
+                      it has nothing to test there, and a green tick would claim
+                      a risk was ruled out when it was never examined.
 
 Run `nullres audit` before believing any result. It takes a minute and it has a
 much better record than intuition.

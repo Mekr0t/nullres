@@ -85,6 +85,50 @@ def test_no_source_file_is_gitignored():
     )
 
 
+def test_no_unaudited_fit_sites():
+    """Pin the set of places that can train a model.
+
+    Every `.fit()` is somewhere a model could be handed data from the future,
+    so the docs have always claimed the call sites are few and audited. The
+    claim was wrong: it named one, while `crosssec.fit_predict_panel` had its
+    own — in the path that produced the strongest result in the project. None
+    of them leak (each purges independently), but nothing would have flagged a
+    fourth appearing.
+
+    Add a site only after satisfying yourself it is fed purged, in-fold data,
+    then list it here.
+    """
+    import re
+
+    allowed = {
+        ("nullres/models/classifier.py", "fit_predict_walk_forward"),
+        ("nullres/models/classifier.py", "feature_importance"),
+        ("nullres/crosssec.py", "fit_predict_panel"),
+    }
+
+    found = set()
+    for path in _module_paths():
+        rel = path.relative_to(REPO).as_posix()
+        function = "<module>"
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if match := re.match(r"\s*def\s+(\w+)", line):
+                function = match.group(1)
+            # `.fit(` on an estimator, not `.fit_predict_*` helper definitions
+            # and not the `make_pipeline`/docstring mentions.
+            if re.search(r"\w\.fit\(", line):
+                found.add((rel, function))
+
+    assert found == allowed, (
+        f"the set of .fit() call sites changed.\n"
+        f"  new/unaudited: {sorted(found - allowed)}\n"
+        f"  gone:          {sorted(allowed - found)}\n"
+        f"Each site is a place a model can be trained on data it should not "
+        f"see. Confirm the new one receives purged, in-fold data only, then "
+        f"add it to `allowed` here and to the docstring in "
+        f"nullres/models/classifier.py."
+    )
+
+
 @pytest.mark.skipif(not (REPO / ".git").exists(), reason="not a git checkout")
 def test_every_source_file_is_tracked_or_staged():
     """A file that exists locally but is untracked will break CI, not your laptop."""

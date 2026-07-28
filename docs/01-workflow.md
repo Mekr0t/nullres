@@ -46,8 +46,11 @@ Most ideas should die here. That is the step working.
 python -m nullres run --config configs/null.toml
 ```
 
-Every strategy must be flat-to-negative on a random walk. Positive Sharpe means
-a bug, and every other result is void until you find it.
+No strategy may find an edge in a random walk. The bar is Sharpe 0.5, not zero,
+and `buy_hold` is exempt — a random walk has a realised drift, so holding it
+scores positive on any finite sample and demanding zero would fail a correct
+engine. Anything else clearing 0.5 is a bug, and every other result is void
+until you find it. See [00 — The rules](00-the-rules.md).
 
 ## 3. Audit for leakage — 1 minute
 
@@ -55,9 +58,13 @@ a bug, and every other result is void until you find it.
 python -m nullres audit --config configs/btc_1h.toml
 ```
 
-Four checks: point-in-time features, single-feature AUC, shuffled-label control,
-null data. Run this **every time you add a feature**, not once at the start.
-Each new feature is a fresh chance to introduce lookahead.
+Five checks: point-in-time features, single-feature AUC, shuffled-label control,
+null data, and survivorship. Run this **every time you add a feature**, not once
+at the start. Each new feature is a fresh chance to introduce lookahead.
+
+Survivorship reports `n/a` on a single-symbol config rather than PASS — it only
+has something to test on a multi-asset universe, and a green tick would claim a
+risk was ruled out when it was never examined.
 
 ## 4. Run the baselines before the model
 
@@ -148,8 +155,35 @@ first and third tests comfortably and failed the second: its whole five-year
 Sharpe advantage came from 2022, and it underperformed holding in every
 trending year. The table is in [the graveyard](05-graveyard.md#donchian-breakout-on-4h).
 
+### How much these tests can actually settle
+
+The stability gate reads five years and the transfer gate four symbols, and
+"beat the benchmark in 60% of them" is a much weaker demand than it sounds:
+
+```
+5 years,   need 3:  a strategy exactly as good as hold clears this 50% of the time
+4 symbols, need 3:  ...31% of the time
+```
+
+So a bare count cannot tell *"worse than holding"* from *"not enough evidence"*,
+and reporting both as KILLED published coin flips as findings. A gate now fails
+only on **decisive** evidence — the count went against it and the mean excess is
+distinguishable from zero — and a count that fails alone yields **INCONCLUSIVE**.
+Each note prints its own false-kill rate so you can weigh it.
+
+Counting also discards magnitude, which matters more than the threshold does. On
+the 4h config `donchian` and `mean_reversion` both beat hold in 40% of years and
+used to score identically; their mean excess Sharpes are **−0.04** and **−1.13**.
+One is indistinguishable from holding, the other is far worse. Both numbers are
+now reported.
+
+The decision rule stays aggressive — SURVIVED requires clearing all three gates —
+because a false kill costs one idea and a false survival costs months. That is a
+choice about which error to prefer, not a claim that the gates are demanding.
+
 Surviving all three does not certify a strategy. It only means it has not yet
-been cheaply disproved.
+been cheaply disproved. INCONCLUSIVE means even less: the battery ran and could
+not separate the strategy from the thing you would have done anyway.
 
 ## 9. Forward paper trade
 

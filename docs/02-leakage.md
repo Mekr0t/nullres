@@ -3,7 +3,10 @@
 Every leak below has been shipped to production by someone competent. They are
 ordered roughly by how often they occur.
 
-Run `python -m nullres audit --config <cfg>` to check the first four mechanically.
+Run `python -m nullres audit --config <cfg>` to check leaks 1, 2, 3, 3b and 5
+mechanically. Leak 4 is prevented by construction rather than checked, leak 6 is
+handled by the run ledger, and leak 7 cannot be automated at all. The table at
+the bottom of this file maps each check to what it catches.
 
 ---
 
@@ -129,8 +132,13 @@ Two supporting pieces make it possible:
 - `data.universe.delisted_from_cache` identifies symbols whose archive stops
   early, offline, from local files.
 
-The repo's own universe is built this way: 136 symbols enumerated as of
-2021-12, of which 9 later died and are held to the end.
+The repo's own universe is built this way. The archive lists **138** USDT perps
+trading in 2021-12; two of them (`BTCDOMUSDT`, `DEFIUSDT`) are index products
+rather than assets and are excluded, leaving **136**. Of those, **16** have
+archives that stop before the sample ends — they were delisted, and they stay in
+the universe. Fewer than that reach the traded book, because the top-40
+liquidity screen is applied afterwards; `nullres xsec` prints which ones and the
+date each stopped trading.
 
 **What it still cannot see** is whether you picked the *winners among the
 survivors*. That is hindsight, entry 7 below, and no check will ever catch it.

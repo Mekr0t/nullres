@@ -40,13 +40,13 @@ def test_transfer_judges_excess_not_absolute_return():
     0.71 below simply holding it. In a sample where every asset rose, "made
     money" is not evidence the rule did anything.
     """
-    ok, notes = verdict(
+    outcome, notes = verdict(
         grid_df([0.4, 0.5, 0.45, 0.6, 0.38]),
         stability_df([0.2, 0.3, 0.1, 0.25, 0.15]),
         transfer_df([0.17, 0.03, 0.20], vs_hold=[-0.02, -0.71, -0.15]),
     )
-    assert not ok
-    assert any("TRANSFER FAIL" in n for n in notes)
+    assert outcome != "SURVIVED"
+    assert any("TRANSFER" in n for n in notes)
 
 
 def smooth_grid(values_2d):
@@ -82,13 +82,13 @@ def test_checkerboard_is_killed_even_when_mostly_positive():
     flips = sign_flip_rate(grid, ["a", "b"])
     assert (grid["sharpe"] > 0).mean() > 0.6 and grid["sharpe"].median() > 0
 
-    ok, notes = verdict(
+    outcome, notes = verdict(
         grid,
         stability_df([0.2, 0.3, 0.1, 0.25, 0.15]),
         transfer_df([0.3, 0.4, 0.35]),
         flip_rate=flips,
     )
-    assert not ok
+    assert outcome == "KILLED"
     assert any("noise field" in n for n in notes)
 
 
@@ -149,45 +149,133 @@ def test_partial_periods_are_excluded_from_stability():
     assert {"2022", "2023"} <= set(periods)
 
 
+def test_a_year_the_strategy_sat_flat_is_scored_not_dropped():
+    """`by_period` drops a zero-variance period; the stability test must not.
+
+    A year with no position has no variance, so it never reached the merge and
+    vanished from the denominator. Live on the 1d config, where sma_cross and
+    donchian are flat through 2022 — the year a flat book most obviously beats a
+    collapsing benchmark. Which way the omission cuts depends on what the
+    benchmark did that year, so the verdict moved for reasons unrelated to the
+    strategy.
+    """
+    import numpy as np
+
+    from nullres.config import load_config
+    from nullres.robustness import period_stability
+    from nullres.strategies.base import Context
+
+    idx = pd.date_range("2021-01-01", "2023-12-31", freq="4h")
+    rng = np.random.default_rng(0)
+    opens = 100 * np.exp(np.cumsum(rng.normal(0.0002, 0.01, len(idx))))
+    bars = pd.DataFrame({"open": opens, "high": opens * 1.01, "low": opens * 0.99,
+                         "close": opens, "volume": 1.0, "trades": 1.0}, index=idx)
+
+    label = pd.DataFrame({"sigma": 0.01, "ret": 0.0, "y": 1.0, "t_end": 0}, index=idx)
+    cfg = load_config("configs/btc_4h.toml")
+    ctx = Context(bars=bars, features=pd.DataFrame(index=idx), label=label,
+                  cfg=cfg, oos_mask=pd.Series(True, index=idx), verbose=False)
+
+    # Flat across the whole of 2022, having already gone flat mid-2021. The
+    # exit must fall OUTSIDE 2022: a position change inside the year leaves a
+    # cost tick, and that lone non-zero gives the year variance enough to
+    # survive `by_period`. The real 1d case is this one — flat throughout, no
+    # transition, so every return in the year is exactly zero.
+    flat_year = pd.Series(1.0, index=idx)
+    flat_year[flat_year.index >= pd.Timestamp("2021-07-01")] = 0.0
+    flat_year[flat_year.index.year >= 2023] = 1.0
+
+    class FlatIn2022:
+        name = "flat_in_2022"
+
+        def positions(self, _ctx):
+            return flat_year
+
+    import nullres.robustness as R
+
+    real_build = R.build_strategy
+    R.build_strategy = lambda name, params=None: (
+        FlatIn2022() if name == "flat_in_2022" else real_build(name, params)
+    )
+    try:
+        stability = period_stability(cfg, "flat_in_2022", ctx=ctx)
+    finally:
+        R.build_strategy = real_build
+
+    assert "2022" in set(stability["period"]), "the flat year was dropped"
+    row = stability.set_index("period").loc["2022"]
+    assert row["sharpe"] == 0.0, "a flat year returned nothing, so Sharpe is 0"
+    assert row["n_trades"] == 0
+    # Excess is simply minus the benchmark's — the sign follows what hold did.
+    assert row["excess_sharpe"] == pytest.approx(-row["sharpe_hold"])
+
+
 def test_a_broadly_robust_strategy_survives():
-    ok, notes = verdict(
+    outcome, notes = verdict(
         grid_df([0.4, 0.5, 0.45, 0.6, 0.38]),
         stability_df([0.2, 0.3, 0.1, 0.25, 0.15]),
         transfer_df([0.3, 0.4, 0.35]),
     )
-    assert ok, notes
+    assert outcome == "SURVIVED", notes
 
 
 def test_isolated_parameter_spike_is_killed():
     """One brilliant cell surrounded by losses is a fitting artefact."""
-    ok, notes = verdict(
+    outcome, notes = verdict(
         grid_df([-0.2, -0.1, 1.9, -0.3, -0.15]),
         stability_df([0.2, 0.3, 0.1, 0.25, 0.15]),
         transfer_df([0.3, 0.4, 0.35]),
     )
-    assert not ok
+    assert outcome == "KILLED"
     assert any("NEIGHBOURHOOD FAIL" in n for n in notes)
 
 
-def test_one_good_year_is_killed():
-    """The donchian 4h case: a strong average carried by a single period."""
-    ok, notes = verdict(
+def test_one_good_year_is_inconclusive_not_killed():
+    """The donchian 4h case, and the reason the verdict gained a third state.
+
+    Excess Sharpes +0.21 +0.56 -0.50 -0.21 -0.27 beat hold in 2 of 5 years, so
+    the old count gate returned KILLED. But their mean is -0.04 with p≈0.84:
+    the evidence cannot separate this from a strategy exactly as good as
+    holding, and at n=5 the gate fires on such a strategy half the time.
+    Calling that KILLED published a coin flip as a finding.
+
+    Killing donchian is still the right *decision* — the graveyard makes it on
+    the magnitudes and on 2022 carrying the whole result. The machine simply no
+    longer claims to have proven it.
+    """
+    outcome, notes = verdict(
         grid_df([0.4, 0.5, 0.45, 0.6, 0.38]),
         stability_df([0.21, 0.56, -0.50, -0.21, -0.27]),
         transfer_df([0.3, 0.4, 0.35]),
     )
-    assert not ok
-    assert any("STABILITY FAIL" in n for n in notes)
+    assert outcome == "INCONCLUSIVE"
+    assert any("STABILITY INCONCLUSIVE" in n for n in notes)
+    assert any("50% of the time" in n for n in notes), "must report its own power"
 
 
-def test_strategy_that_only_works_on_one_symbol_is_killed():
-    ok, notes = verdict(
+def test_a_consistently_worse_strategy_is_still_killed():
+    """The magnitude test has to stay able to kill. sma_cross 4h is the case.
+
+    Excess Sharpes -0.37 -0.05 -0.34 -0.29 -0.25: never beats hold, and the mean
+    is decisively below zero (p≈0.01). That is evidence, not an unlucky count.
+    """
+    outcome, notes = verdict(
+        grid_df([0.4, 0.5, 0.45, 0.6, 0.38]),
+        stability_df([-0.37, -0.05, -0.34, -0.29, -0.25]),
+        transfer_df([0.3, 0.4, 0.35]),
+    )
+    assert outcome == "KILLED"
+    assert any("STABILITY FAIL" in n and "decisively worse" in n for n in notes)
+
+
+def test_strategy_that_only_works_on_one_symbol_is_not_waved_through():
+    outcome, notes = verdict(
         grid_df([0.4, 0.5, 0.45, 0.6, 0.38]),
         stability_df([0.2, 0.3, 0.1, 0.25, 0.15]),
         transfer_df([-0.2, -0.1, 0.4]),
     )
-    assert not ok
-    assert any("TRANSFER FAIL" in n for n in notes)
+    assert outcome != "SURVIVED"
+    assert any("TRANSFER" in n for n in notes)
 
 
 def test_stability_judges_excess_not_absolute_return():
@@ -199,24 +287,59 @@ def test_stability_judges_excess_not_absolute_return():
     losing_to_hold = stability_df([-0.1, -0.2, -0.15, -0.3, -0.05])
     assert (losing_to_hold["sharpe"] > 0).all()      # absolute test would pass
 
-    ok, notes = verdict(
+    outcome, notes = verdict(
         grid_df([0.4, 0.5, 0.45, 0.6, 0.38]),
         losing_to_hold,
         transfer_df([0.3, 0.4, 0.35]),
     )
-    assert not ok, "a strategy that never beats buy & hold must not survive"
+    assert outcome == "KILLED", "a strategy that never beats buy & hold must not survive"
 
 
 def test_empty_inputs_fail_closed():
-    """Missing evidence is not passing evidence."""
-    ok, notes = verdict(
+    """Missing evidence is not passing evidence — and not INCONCLUSIVE either.
+
+    A battery that produced no numbers has not run. That is an error, and it
+    must stay distinguishable from one that ran and could not decide.
+    """
+    outcome, notes = verdict(
         grid_df([0.4, 0.5, 0.45]),
         stability_df([]),
         transfer_df([np.nan, np.nan]),
     )
-    assert not ok
+    assert outcome == "KILLED"
     assert any("STABILITY FAIL" in n for n in notes)
     assert any("TRANSFER FAIL" in n for n in notes)
+
+
+def test_count_gate_power_is_reported_honestly():
+    """The numbers that motivated the rework, pinned so they cannot be forgotten."""
+    from nullres.robustness import count_gate_power
+
+    assert count_gate_power(5) == pytest.approx(0.50, abs=0.01)
+    assert count_gate_power(4) == pytest.approx(0.3125, abs=0.01)
+    assert count_gate_power(3) == pytest.approx(0.50, abs=0.01)
+    # Even 20 observations is not a strong gate at a 60% threshold: 12 of 20 is
+    # barely above half, and a coin flip reaches it a quarter of the time. More
+    # data helps far less than the round number suggests.
+    assert count_gate_power(20) == pytest.approx(0.25, abs=0.01)
+    assert count_gate_power(100) < 0.05
+
+
+def test_magnitude_separates_what_the_count_conflates():
+    """donchian and mean_reversion both beat hold in 40% of years on the 4h data.
+
+    Their mean excess Sharpes are -0.04 and -1.13. Counting signs scores them
+    identically; the magnitude does not.
+    """
+    from nullres.robustness import excess_magnitude
+
+    donchian = [0.21, 0.56, -0.50, -0.21, -0.27]
+    mean_rev = [-1.13, -2.2, 0.4, -1.9, 0.4]
+    assert (np.array(donchian) > 0).mean() == (np.array(mean_rev) > 0).mean()
+
+    d_mean, _ = excess_magnitude(donchian)
+    m_mean, _ = excess_magnitude(mean_rev)
+    assert d_mean > m_mean + 0.5, "the magnitudes are nothing alike"
 
 
 @pytest.mark.parametrize("name,combo,expected", [
@@ -246,3 +369,28 @@ def test_bad_strategy_params_are_rejected_clearly():
 
     with pytest.raises(ValueError, match="bad params"):
         build("donchian", {"nonexistent_param": 1})
+
+
+def test_set_can_override_a_rule_parameter():
+    """`params` is a dict, not a dataclass, and --set used to crash on it.
+
+    `--set params.donchian.entry=48` died with a bare
+    `AttributeError: 'dict' object has no attribute 'donchian'` — no clean
+    message, and rule parameters are exactly what you want to vary from the
+    command line.
+    """
+    from nullres.cli import _apply_override
+    from nullres.config import load_config
+
+    cfg = load_config("configs/btc_4h.toml")
+    _apply_override(cfg, "params.donchian.entry=48")
+    assert cfg.params["donchian"] == {"entry": 48, "exit": 48}
+    assert isinstance(cfg.params["donchian"]["entry"], int), "type came from TOML"
+
+    # A strategy with no params block yet.
+    _apply_override(cfg, "params.mean_reversion.entry=2.5")
+    assert cfg.params["mean_reversion"] == {"entry": 2.5}
+
+    for bad in ("params.donchian=48", "params.a.b.c=1"):
+        with pytest.raises(SystemExit, match="params"):
+            _apply_override(cfg, bad)

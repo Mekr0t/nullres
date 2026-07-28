@@ -31,6 +31,13 @@ Both live in `nullres/costs.py`. `tests/test_costs.py` asserts they are exact
 inverses of each other, because they are the same equation rearranged and it
 would be embarrassing if they disagreed.
 
+**`sqrt(2/pi)` assumes the returns are normal, and they are not.** For BTC 1h
+that factor puts `E|move|` at 0.54% while the empirical mean absolute return is
+0.40% — fat tails inflate sigma relative to the typical move, so the formula
+overstates it by about a third. The error is in the *comfortable* direction for
+a strategy: the real move is smaller than the model assumes, so the accuracy
+these tables demand is if anything too low. Read every number below as a floor.
+
 ## What it says about hourly BTC
 
 Measured sigma is 0.6715% per bar. At Binance spot taker (10bps) plus 2bps
@@ -52,9 +59,13 @@ And inverted — how long you must hold, given the accuracy you actually have:
 accuracy      hold (bars)     ~duration
 51%                   502     20.9 days
 52%                   125      5.2 days
-55%                    20      0.8 days
-60%                     5      0.2 days
+55%                    20    20.1 hours
+60%                     5     5.0 hours
 ```
+
+`~duration` is bars converted at *this config's* bar size. It has to be: bars
+are not a unit of time, and the whole point of the next section is that duration
+is what stays fixed across timeframes while the bar count does not.
 
 **The measured out-of-sample accuracy of the gradient-boosted model on this
 data is 50.2%–52.2%, AUC 0.50–0.53.** Read that against the table. A 51% model
@@ -79,16 +90,24 @@ breakeven bars ∝ 1 / sigma^2  ∝  1 / bar_length
 breakeven DURATION = bars x bar_length = constant
 ```
 
-Measured on BTCUSDT at 51% accuracy and 12bps/side:
+Measured on BTCUSDT at 51% accuracy and 12bps/side — every sigma below is the
+realised standard deviation of that timeframe's log returns, not the 1h figure
+scaled up:
 
 ```
 1h    sigma 0.6715%   ->  502 bars   =  20.9 days
-4h    sigma 1.3430%   ->  133 bars   =  22.2 days
-1d    sigma 3.2912%   ->   21 bars   =  21.0 days
+4h    sigma 1.3054%   ->  133 bars   =  22.1 days
+1d    sigma 3.2912%   ->   21 bars   =  20.9 days
 ```
 
 **Break-even is ~21 days regardless of timeframe.** `tests/test_costs.py::
 test_breakeven_duration_is_invariant_to_timeframe` pins this.
+
+The measured numbers sit slightly *below* perfect sqrt-scaling — `0.6715% × 2`
+would put 4h at 1.3430% against a realised 1.3054%. That gap is real (returns
+are not iid across the aggregation) and small enough not to disturb the
+conclusion. Quoting the scaled figure as if it were measured is a different
+matter, and this table used to do it.
 
 So what does timeframe change? Signal-to-noise (fewer, larger bars carry less
 microstructure noise), sample size (52,000 hourly bars vs 2,200 daily), and how

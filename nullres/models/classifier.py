@@ -1,8 +1,18 @@
 """Model construction and out-of-sample prediction.
 
-`fit_predict_walk_forward` is the only function that should ever call `.fit()`.
-Keeping it in one place means there is exactly one line of code that could
-accidentally train on the future, and it is covered by a test.
+Every `.fit()` in this repository is a place that could accidentally train on
+the future, so the set of them is kept small, deliberate, and pinned by
+`tests/test_packaging.py::test_no_unaudited_fit_sites`. There are three:
+
+    classifier.fit_predict_walk_forward   the single-asset walk-forward
+    classifier.feature_importance         refits the last fold to permute it
+    crosssec.fit_predict_panel            the panel walk-forward, split on TIME
+
+The third is easy to miss and long went unmentioned — the docs claimed a single
+call site while the cross-sectional path, which produced the strongest result in
+the project, had its own. Each is purged independently, so nothing leaks; the
+risk was that a fourth could appear without anyone noticing. The test now fails
+if one does.
 """
 
 from __future__ import annotations

@@ -169,6 +169,25 @@ def test_t_stat_barely_moves_which_is_why_this_hid():
     assert abs(unmasked["sharpe"] / masked["sharpe"] - 1) > 0.10
 
 
+def test_hit_rate_scores_the_bar_that_earned_the_return():
+    """`gross = position * fwd`, so returns[t] belongs to position[t].
+
+    Masking on `position.shift(1)` asked whether the previous bar was in the
+    market — one bar off, on a series where the position moves.
+    """
+    from nullres.backtest.metrics import summarize
+
+    # In the market for bars 0-1 only. Bar 0 earns open[1]->open[2] = +, bar 1
+    # earns open[2]->open[3] = -. So one win, one loss: hit rate 0.5.
+    bars = bars_from_opens([100.0, 100.0, 110.0, 100.0, 100.0, 100.0])
+    pos = pd.Series([1.0, 1.0, 0.0, 0.0, 0.0, 0.0], index=bars.index)
+    result = backtest(bars, pos, NO_COST)
+
+    assert result.gross.iloc[0] > 0 and result.gross.iloc[1] < 0
+    assert result.gross.iloc[2:].abs().sum() == pytest.approx(0.0)
+    assert summarize(result, 8_760)["hit_rate"] == pytest.approx(0.5)
+
+
 def test_restrict_leaves_a_fully_traded_result_alone():
     from nullres.backtest.engine import restrict
 

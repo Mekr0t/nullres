@@ -16,7 +16,27 @@ more of your time it has to survive three attempts to kill it:
                  asset you developed it on describes that asset's history.
 
 Passing all three does not make a strategy real — the only test that does is
-forward paper trading. Failing any one of them makes it dead, cheaply, today.
+forward paper trading.
+
+**What these tests can and cannot resolve.** Two of the three rest on very few
+observations: five years, four symbols. A gate reading "beat the benchmark in
+60% of periods" sounds demanding, but at n=5 it means three of five, and a
+strategy that is genuinely a coin flip against buy & hold clears it half the
+time. At n=4 symbols a coin flip clears it 31% of the time. That is not a
+detail — it means a bare count cannot tell "this is worse than holding" from
+"there is not enough evidence here", and for a long time this module reported
+both as KILLED.
+
+So each count gate is now read alongside the magnitude of the shortfall, and
+`verdict` has three outcomes rather than two. A gate FAILS only when the count
+goes against it AND the mean excess is distinguishable from zero. A count that
+fails alone yields INCONCLUSIVE, and every note prints how often the gate would
+have fired by chance.
+
+The decision rule stays aggressive on purpose — a strategy earns SURVIVED only
+by clearing all three — because a false kill costs one idea and a false survival
+costs months. That is a decision about which error to prefer, not a claim that
+the thresholds are statistically strong. They are not.
 """
 
 from __future__ import annotations
@@ -26,6 +46,7 @@ from itertools import product
 
 import numpy as np
 import pandas as pd
+from scipy import stats as sps
 
 from nullres.backtest import backtest, by_period, summarize
 from nullres.pipeline import prepare, run_pipeline
@@ -138,10 +159,26 @@ def period_stability(cfg, strategy: str, ctx=None, freq: str = "YE") -> pd.DataF
     hold = by_period(backtest(ctx.bars, hold_pos, cfg.cost),
                      cfg.data.bars_per_year, mask=ctx.oos_mask, freq=freq)
 
+    # Join onto the BENCHMARK's periods, not the strategy's. `by_period` drops a
+    # period with no variance, which is precisely a year the strategy sat flat —
+    # so a left join silently removed it from the stability test rather than
+    # scoring it. Live on the 1d config: sma_cross and donchian are flat through
+    # 2022 and that year simply disappeared, taking with it the year a flat book
+    # most obviously beats a -65% benchmark. The bias is not consistently in the
+    # strategy's favour, which is worse than if it were: whether dropping a year
+    # helps or hurts depends on what the benchmark happened to do in it.
+    #
+    # A flat period is a real observation. The strategy returned nothing, so its
+    # Sharpe is 0 and its excess is minus the benchmark's.
     merged = strat.merge(
         hold[["period", "total_return", "sharpe"]],
-        on="period", how="left", suffixes=("", "_hold"),
-    )
+        on="period", how="right", suffixes=("", "_hold"),
+    ).sort_values("period", ignore_index=True)
+    for column, filler in (("sharpe", 0.0), ("total_return", 0.0),
+                           ("n_trades", 0), ("bars", 0)):
+        if column in merged:
+            merged[column] = merged[column].fillna(filler)
+
     merged["excess_sharpe"] = merged["sharpe"] - merged["sharpe_hold"]
     return merged
 
@@ -253,22 +290,130 @@ def _is_noise_field(frac_positive: float, flip_rate: float | None,
     return flip_rate >= tolerance * expected
 
 
+KILLED, SURVIVED, INCONCLUSIVE = "KILLED", "SURVIVED", "INCONCLUSIVE"
+
+
+def count_gate_power(n: int, threshold: float = 0.6, p_null: float = 0.5) -> float:
+    """How often a strategy exactly as good as the benchmark clears a count gate.
+
+    "Beat the benchmark in 60% of periods" sounds demanding until you count the
+    periods. With five years it means three of five, and a strategy that is
+    genuinely a coin flip against buy & hold clears that **half the time**. With
+    four symbols it is three of four, which a coin flip clears 31% of the time.
+
+    A gate this noisy cannot carry a verdict by itself, so the number is printed
+    beside every count so the reader knows what the count is worth.
+    """
+    if n < 1:
+        return float("nan")
+    need = int(np.ceil(threshold * n))
+    return float(1 - sps.binom.cdf(need - 1, n, p_null))
+
+
+def excess_magnitude(values) -> tuple[float, float]:
+    """(mean, p) for "is the mean excess distinguishable from zero".
+
+    The count gates throw away magnitude, and that loses real information: on
+    the 4h config `donchian` and `mean_reversion` both beat hold in 40% of years
+    and score identically, while their mean excess Sharpes are -0.04 and -1.13.
+    One is indistinguishable from holding; the other is far worse. A test on the
+    magnitude separates them; counting signs cannot.
+
+    It is not a replacement for the count, because it is less decisive on noisy
+    series — `mean_reversion`'s -1.13 carries p=0.31 across five volatile years.
+    Neither statistic dominates, so both are reported.
+    """
+    clean = np.asarray(values, dtype=float)
+    clean = clean[np.isfinite(clean)]
+    if len(clean) < 2 or np.allclose(clean, clean[0]):
+        return (float(clean.mean()) if len(clean) else float("nan"), float("nan"))
+    _, p = sps.ttest_1samp(clean, 0.0)
+    return float(clean.mean()), float(p)
+
+
+def _decisively_worse(mean: float, p: float, alpha: float = 0.05) -> bool:
+    return bool(np.isfinite(p) and p < alpha and mean < 0)
+
+
+def _count_gate(values, label: str, unit: str,
+                threshold: float = 0.6) -> tuple[str, str]:
+    """Score one count-plus-magnitude gate. Returns (outcome, note).
+
+    Outcomes are FAIL (decisive evidence against), PASS, or WEAK — the tests
+    ran but cannot separate this strategy from one exactly as good as the
+    benchmark. WEAK is not a pass; it is the honest description of an
+    underpowered result, and it is why the overall verdict has three states.
+    """
+    values = np.asarray(values, dtype=float)
+    values = values[np.isfinite(values)]
+    n = len(values)
+    if n == 0:
+        return "FAIL", f"{label} FAIL: no {unit} produced a result"
+
+    beat = int((values > 0).sum())
+    frac = beat / n
+    mean, p = excess_magnitude(values)
+    power = count_gate_power(n, threshold)
+    p_text = "n/a" if not np.isfinite(p) else f"{p:.3f}"
+
+    if _decisively_worse(mean, p):
+        return "FAIL", (
+            f"{label} FAIL: beat the benchmark in {beat} of {n} {unit} "
+            f"({frac:.0%}); mean excess {mean:+.2f} (p={p_text}) — decisively "
+            f"worse than the thing you would have done anyway."
+        )
+    if frac >= threshold:
+        return "PASS", (
+            f"{label.lower()} ok: beat the benchmark in {beat} of {n} {unit} "
+            f"({frac:.0%}); mean excess {mean:+.2f} (p={p_text})."
+        )
+    return "WEAK", (
+        f"{label} INCONCLUSIVE: beat the benchmark in {beat} of {n} {unit} "
+        f"({frac:.0%}), but mean excess {mean:+.2f} (p={p_text}) is not "
+        f"distinguishable from zero. At n={n} this count gate passes "
+        f"{power:.0%} of the time even for a strategy exactly as good as the "
+        f"benchmark, so failing it on its own decides nothing."
+    )
+
+
 def verdict(neighbourhood: pd.DataFrame, stability: pd.DataFrame,
             transfer: pd.DataFrame,
             benchmark_sharpe: float | None = None,
-            flip_rate: float | None = None) -> tuple[bool, list[str]]:
-    """Turn the three tables into a pass/fail with reasons.
+            flip_rate: float | None = None) -> tuple[str, list[str]]:
+    """Turn the three tables into KILLED, SURVIVED or INCONCLUSIVE, with reasons.
 
-    The thresholds are deliberately lenient. They are meant to catch strategies
-    that are obviously fitted, not to certify the survivors.
+    Three states, not two, because two states forced a claim the evidence does
+    not support. The count gates rest on four or five Bernoulli draws: at n=5 a
+    strategy genuinely equal to buy & hold fails the stability gate half the
+    time. Reporting that as KILLED dressed a coin flip as a finding, and the
+    verdict then propagated into the ledger and warned future runs off the
+    config.
+
+    So a gate now FAILS only on decisive evidence — the count went against it
+    AND the magnitude of the shortfall is distinguishable from zero. A count
+    that fails on its own returns WEAK, and the run comes out INCONCLUSIVE.
+
+    The decision rule stays deliberately aggressive: for research triage a false
+    kill is cheap and a false survival is expensive, so a strategy has to earn
+    SURVIVED by clearing every gate. That is a decision-theoretic stance, not a
+    claim that the thresholds are statistically demanding. They are not, and
+    each note now says so.
     """
-    notes, passed = [], True
+    notes, outcomes = [], []
 
     frac = float((neighbourhood["sharpe"] > 0).mean())
     median = float(neighbourhood["sharpe"].median())
     best = float(neighbourhood["sharpe"].max())
+    # The neighbourhood gate keeps a hard pass/fail, but not because counting
+    # ~20 cells is decisive on its own — at a 60% threshold even 20 independent
+    # draws fire a quarter of the time by chance, and adjacent grid cells are
+    # heavily correlated, so the effective count is smaller still. What carries
+    # this gate is the two conditions the count does not supply: the median must
+    # be positive, and `_is_noise_field` judges the ARRANGEMENT of signs against
+    # what random placement would give. Those do not degrade with sample size
+    # the way a bare count does.
     if frac < 0.6 or median <= 0:
-        passed = False
+        outcomes.append("FAIL")
         notes.append(
             f"NEIGHBOURHOOD FAIL: only {frac:.0%} of {len(neighbourhood)} parameter "
             f"combinations are positive (median sharpe {median:.2f}, best {best:.2f}). "
@@ -280,7 +425,7 @@ def verdict(neighbourhood: pd.DataFrame, stability: pd.DataFrame,
         # placement of the SAME number of positive cells would produce:
         # 2p(1-p). Matching that means the arrangement carries no information.
         expected = 2 * frac * (1 - frac)
-        passed = False
+        outcomes.append("FAIL")
         notes.append(
             f"NEIGHBOURHOOD FAIL: {frac:.0%} of combinations are positive, but the "
             f"sign flips across {flip_rate:.0%} of adjacent cells versus "
@@ -298,58 +443,53 @@ def verdict(neighbourhood: pd.DataFrame, stability: pd.DataFrame,
                        f"({benchmark_sharpe:.2f})")
         smooth = f", sign flips across {flip_rate:.0%} of adjacent cells" \
             if flip_rate is not None else ""
+        outcomes.append("PASS")
         notes.append(
             f"neighbourhood ok: {frac:.0%} of combinations positive, "
             f"median sharpe {median:.2f}{context}{smooth}"
         )
 
+    # The test that matters is beating the benchmark, not being positive. A
+    # long-only filter over a bull market is positive in most years by
+    # construction; that says nothing about whether the rule adds anything.
     if stability.empty:
-        passed = False
+        outcomes.append("FAIL")
         notes.append("STABILITY FAIL: no periods with activity to evaluate")
     else:
-        # The test that matters is beating the benchmark, not being positive.
-        # A long-only filter over a bull market is positive in most years by
-        # construction; that says nothing about whether the rule adds anything.
-        beat = float((stability["excess_sharpe"] > 0).mean())
-        worst = float(stability["excess_sharpe"].min())
-        if beat < 0.6:
-            passed = False
-            notes.append(
-                f"STABILITY FAIL: beat buy & hold in only {beat:.0%} of years "
-                f"(worst excess sharpe {worst:.2f}). The edge is concentrated in "
-                f"a minority of periods."
-            )
-        else:
-            notes.append(
-                f"stability ok: beat buy & hold in {beat:.0%} of years "
-                f"(worst excess sharpe {worst:.2f})"
-            )
+        outcome, note = _count_gate(
+            stability["excess_sharpe"].to_numpy(dtype=float), "STABILITY", "years"
+        )
+        outcomes.append(outcome)
+        notes.append(note)
 
+    # Same correction: "positive" is a low bar when every asset in the sample
+    # rose. BNBUSDT scored Sharpe 0.03 — positive, and 0.71 WORSE than simply
+    # holding it. Judge against the alternative.
     scored = transfer.dropna(subset=["sharpe"])
     if scored.empty:
-        passed = False
+        outcomes.append("FAIL")
         notes.append("TRANSFER FAIL: no other symbol produced a result")
     else:
-        # Same correction as the stability test: "positive" is a low bar when
-        # every asset in the sample rose. BNBUSDT scored Sharpe 0.03 — positive,
-        # and 0.71 WORSE than simply holding it. Judge against the alternative.
         column = "vs_hold" if "vs_hold" in scored.columns else "sharpe"
-        beat = float((scored[column] > 0).mean())
-        if beat < 0.6:
-            passed = False
-            notes.append(
-                f"TRANSFER FAIL: beat buy & hold on only {beat:.0%} of "
-                f"{len(scored)} other symbols (worst {scored[column].min():.2f}). "
-                f"The rule may describe this asset's history rather than market "
-                f"structure."
-            )
-        else:
-            notes.append(
-                f"transfer ok: beat buy & hold on {beat:.0%} of other symbols "
-                f"(worst {scored[column].min():.2f})"
-            )
+        outcome, note = _count_gate(
+            scored[column].to_numpy(dtype=float), "TRANSFER", "symbols"
+        )
+        outcomes.append(outcome)
+        notes.append(note)
 
-    return passed, notes
+    if "FAIL" in outcomes:
+        result = KILLED
+    elif "WEAK" in outcomes:
+        result = INCONCLUSIVE
+        notes.append(
+            "INCONCLUSIVE means the battery ran and could not separate this "
+            "strategy from one exactly as good as the benchmark — not that it "
+            "looks promising. Deciding what an underpowered result means is "
+            "the human's job; see docs/05-graveyard.md."
+        )
+    else:
+        result = SURVIVED
+    return result, notes
 
 
 def pivot_grid(df: pd.DataFrame, keys: list[str]) -> str:

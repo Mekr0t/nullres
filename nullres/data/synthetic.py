@@ -20,7 +20,8 @@ import numpy as np
 import pandas as pd
 
 _FREQ = {"1m": "min", "5m": "5min", "15m": "15min", "30m": "30min",
-         "1h": "h", "2h": "2h", "4h": "4h", "12h": "12h", "1d": "D"}
+         "1h": "h", "2h": "2h", "4h": "4h", "6h": "6h", "12h": "12h",
+         "1d": "D", "1w": "W"}
 
 
 def synthetic_funding(bars: pd.DataFrame, seed: int = 0) -> pd.DataFrame:
@@ -110,5 +111,23 @@ def synthetic_bars(n: int = 40_000, seed: int = 0, interval: str = "1h",
             "volume": np.abs(rng.normal(500, 150, n)),
             "trades": np.abs(rng.normal(3_000, 800, n)),
         },
-        index=pd.date_range(start, periods=n, freq=_FREQ.get(interval, "h"), name="ts"),
+        index=pd.date_range(start, periods=n, freq=_interval_freq(interval), name="ts"),
     )
+
+
+def _interval_freq(interval: str) -> str:
+    """Bar spacing for an interval, refusing to guess.
+
+    This used to fall back to hourly for anything unrecognised, silently. A 6h
+    config would then generate HOURLY bars and annualise them at 1,460 bars per
+    year — a null control mis-calibrated by a factor of six, in the one test the
+    docs call the most useful in the repo. Failing loudly is the only safe
+    behaviour for a calibration instrument.
+    """
+    if interval not in _FREQ:
+        raise ValueError(
+            f"no synthetic bar spacing defined for interval {interval!r}; "
+            f"add it to _FREQ in nullres/data/synthetic.py "
+            f"(known: {sorted(_FREQ)})"
+        )
+    return _FREQ[interval]

@@ -6,6 +6,10 @@
     nullres run      --config configs/btc_1h.toml     backtest every strategy
     nullres sweep    --config configs/btc_1h.toml     threshold sensitivity surface
     nullres features --config configs/btc_1h.toml     out-of-sample importances
+    nullres ablate   --config configs/btc_4h_deriv.toml --ablate derivatives
+                                                   matched-sample A/B on AUC
+    nullres xsec     --config configs/xsec_4h.toml    cross-sectional long/short
+    nullres log                                       the run ledger
     nullres robust   --config configs/btc_4h.toml -s donchian
                                                    three falsification tests:
                                                    parameter neighbourhood,
@@ -97,9 +101,10 @@ def cmd_log(cfg, args) -> int:
 
     killed = sum(1 for r in runs if r.verdict == "KILLED")
     survived = sum(1 for r in runs if r.verdict == "SURVIVED")
+    unsettled = sum(1 for r in runs if r.verdict == "INCONCLUSIVE")
     configs = len({r.config_hash for r in runs})
     print(f"\n  {len(runs)} runs over {configs} distinct configs — "
-          f"{killed} KILLED, {survived} SURVIVED")
+          f"{killed} KILLED, {survived} SURVIVED, {unsettled} INCONCLUSIVE")
     print(f"  {count_trials(runs)} distinct trials (re-running the same config "
           f"and command is one look, not two)")
 
@@ -373,17 +378,23 @@ def cmd_robust(cfg, args) -> int:
     # and computed the same way — NOT the mean of its per-year Sharpes, which
     # is a different statistic and a materially higher bar.
     bench = hold_sharpe(cfg, ctx)
-    ok, notes = verdict(grid, stability, transfer, benchmark_sharpe=bench,
-                        flip_rate=flips)
-    _banner("VERDICT: " + ("SURVIVED" if ok else "KILLED"))
+    outcome, notes = verdict(grid, stability, transfer, benchmark_sharpe=bench,
+                             flip_rate=flips)
+    _banner("VERDICT: " + outcome)
     for note in notes:
         print(f"  {note}")
-    if ok:
+    if outcome == "SURVIVED":
         print("\nThis strategy survived three attempts to falsify it. That earns it")
         print("a forward paper-trading run — not capital, and not confidence.")
-    else:
+    elif outcome == "KILLED":
         print("\nThis strategy is not worth further work in its current form.")
         print("That is a cheap answer to have obtained today rather than in six months.")
+    else:
+        print("\nThe battery ran and did not settle it. That is a statement about")
+        print("the evidence, not about the strategy: at four or five observations")
+        print("these gates cannot separate 'worse than holding' from 'too little")
+        print("data to tell'. Judge it on the magnitudes above and on reasoning")
+        print("the machine does not have — and do not read it as encouragement.")
 
     # The verdict is what makes the ledger useful: it is the field `find_similar`
     # matches on when warning about a re-run.
@@ -396,7 +407,10 @@ def cmd_robust(cfg, args) -> int:
 
     logged = _copy.deepcopy(cfg)
     logged.strategies = [strategy]
-    _record(logged, "robust", verdict="SURVIVED" if ok else "KILLED",
+    # Only KILLED propagates to the near-miss warning (`find_similar` filters on
+    # it). An INCONCLUSIVE run must not warn a future config off a dead end that
+    # was never established.
+    _record(logged, "robust", verdict=outcome,
             variants=len(grid) + len(transfer),
             notes=f"strategy={strategy}; " + " | ".join(notes),
             metrics={
@@ -676,7 +690,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--trials", type=int, default=None,
                         help="override the multiple-testing trial count used by "
                              "deflated_sharpe (default: read from the run ledger)")
-    parser.add_argument("--verdict", default=None, choices=["KILLED", "SURVIVED"],
+    parser.add_argument("--verdict", default=None,
+                        choices=["KILLED", "SURVIVED", "INCONCLUSIVE"],
                         help="log: show only runs with this verdict")
     parser.add_argument("--limit", type=int, default=25,
                         help="log: how many recent runs to show")
@@ -717,26 +732,51 @@ def _apply_override(cfg, spec: str) -> None:
     if "=" not in spec:
         raise SystemExit(f"bad --set {spec!r}, expected section.key=value")
     path, raw = spec.split("=", 1)
-    target = cfg
     parts = path.split(".")
+
+    # `params` is a plain dict of per-strategy kwargs, not a dataclass, so
+    # `--set params.donchian.entry=48` used to die on `getattr(dict, ...)` with
+    # a bare AttributeError. Rule parameters are exactly what you want to
+    # override from the command line, so handle the dict branch explicitly.
+    if parts[0] == "params":
+        if len(parts) != 3:
+            raise SystemExit(
+                f"bad --set {spec!r}: expected params.<strategy>.<key>=value"
+            )
+        _, strategy, key = parts
+        existing = cfg.params.get(strategy, {}).get(key)
+        cfg.params.setdefault(strategy, {})[key] = _coerce(raw, existing)
+        return
+
+    target = cfg
     for part in parts[:-1]:
         target = getattr(target, part)
     key = parts[-1]
     if not hasattr(target, key):
         raise SystemExit(f"unknown config path {path!r}")
 
-    current = getattr(target, key)
+    setattr(target, key, _coerce(raw, getattr(target, key)))
+
+
+def _coerce(raw: str, current):
+    """Parse `raw` to match the type of the value it replaces."""
     if isinstance(current, bool):
-        value = raw.lower() in ("1", "true", "yes")
-    elif isinstance(current, int):
-        value = int(raw)
-    elif isinstance(current, float):
-        value = float(raw)
-    elif isinstance(current, list):
-        value = [v.strip() for v in raw.split(",")]
-    else:
-        value = raw
-    setattr(target, key, value)
+        return raw.lower() in ("1", "true", "yes")
+    if isinstance(current, int):
+        return int(raw)
+    if isinstance(current, float):
+        return float(raw)
+    if isinstance(current, list):
+        return [v.strip() for v in raw.split(",")]
+    if current is None:
+        # An override for a key the config never declared: guess from the text,
+        # since there is no existing value to match.
+        for cast in (int, float):
+            try:
+                return cast(raw)
+            except ValueError:
+                continue
+    return raw
 
 
 if __name__ == "__main__":

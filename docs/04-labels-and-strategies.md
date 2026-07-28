@@ -9,10 +9,13 @@ between a hard question and an impossible one.
 
 "Will the next bar close higher?" Available for comparison; not recommended.
 
-A 1h BTC bar moves ~0.67% on average and a round trip costs 0.24%. You are
-asking a model to call a coin flip well enough to clear 36% of the typical
-move, on the noisiest timescale available. Even at a genuine 54% accuracy, the
-economics do not work — see [03 — Costs](03-costs.md).
+A 1h BTC bar's typical move is ~0.54% — that is `E|move|`, the quantity the
+cost budget uses; the *standard deviation* of log returns is 0.6715% and the
+empirical mean absolute move is smaller still at 0.40%. A round trip costs
+0.24%. So you are asking a model to call a coin flip well enough to clear
+**45% of the typical move**, on the noisiest timescale available. Even at a
+genuine 54% accuracy the economics do not work — see
+[03 — Costs](03-costs.md).
 
 ### `fwd_return` — vol-scaled return over a horizon, with a dead band
 
@@ -126,7 +129,8 @@ The ranked list, given what this repo has already ruled out:
    order-book imbalance, on-chain flows. Thirty-two technical indicators derived
    from OHLCV are thirty-two views of the same four numbers, and `nullres features`
    will show you most of them carry nothing out of sample — on the 4h config
-   only `vol_72` clears 0.01 AUC, and a third of them score *negative*.
+   only `vol_72` clears 0.01 AUC (0.0244, against 0.0084 for the next feature),
+   and 13 of the 32 score *negative*.
 3. **Cross-sectional instead of time-series.** "Which of these 50 assets will
    outperform the others" is a genuinely easier question than "will this one go
    up", and it hedges out the market move. It also introduces survivorship bias

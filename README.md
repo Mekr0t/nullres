@@ -84,11 +84,19 @@ The linear pipeline is the boring part. The loop around it is the product.
                         │
                   ROBUSTNESS ── neighbourhood · stability · transfer · cost
                         │
-             ┌──────────┴──────────┐
-          KILLED                SURVIVED
-             │                       │
-        graveyard          forward paper trade
+        ┌───────────────┼───────────────┐
+     KILLED       INCONCLUSIVE       SURVIVED
+        │               │               │
+   graveyard      your judgement   forward paper trade
 ```
+
+Three outcomes, not two, because two forced a claim the evidence could not
+support. The stability and transfer gates read five years and four symbols; at
+that size a strategy exactly as good as buy & hold fails them 50% and 31% of the
+time. A gate now returns KILLED only when the count goes against a strategy
+**and** the magnitude of the shortfall is distinguishable from zero — otherwise
+the run is INCONCLUSIVE, and deciding what that means is yours. Every note
+prints how often its gate would have fired by chance.
 
 | stage | guarantees |
 |---|---|
@@ -96,7 +104,7 @@ The linear pipeline is the boring part. The loop around it is the product.
 | **Features** | stationary only; every value knowable at that bar's close |
 | **Labels** | triple-barrier with real resolution times, not a fixed horizon |
 | **Validation** | purged + embargoed walk-forward; uniqueness-weighted samples |
-| **Models** | one module may call `.fit()`, so one line of code can leak |
+| **Models** | three audited `.fit()` sites, pinned by a test — a fourth fails CI |
 | **Execution** | decide at close `t`, fill at open `t+1`, pay fees every change |
 | **Metrics** | deflated Sharpe, t-stats, cost drag, per-period breakdowns |
 | **Robustness** | four independent attempts to falsify anything that looks good |

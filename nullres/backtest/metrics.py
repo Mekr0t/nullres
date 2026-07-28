@@ -64,7 +64,10 @@ def summarize(result, bars_per_year: int, n_trials: int = 1, mask=None) -> dict:
     gross_total = float(np.exp(result.gross.sum()) - 1.0)
     cost_log = result.total_cost
     exposure = float((result.position.abs() > 1e-12).mean())
-    active = r[result.position.shift(1).fillna(0.0).abs() > 1e-12]
+    # The engine sets gross = position * fwd, so returns[t] is earned by
+    # position[t] — not position[t-1]. Masking on a shifted position asked
+    # whether the WRONG bar was in the market.
+    active = r[result.position.abs() > 1e-12]
     hit_rate = float((active > 0).mean()) if len(active) else 0.0
 
     return {

@@ -14,9 +14,12 @@ A fixed purge constant is only correct when every label has the same horizon,
 which stops being true the moment you use barriers.
 
 On label choice: `next_bar_sign` is the honest version of the baseline's label,
-and it is almost pure noise. A 1h BTC bar moves ~0.4% on average; round-trip
-cost is ~0.24%. You are asking a model to call a coin flip well enough to clear
-60% of the move. `triple_barrier` instead asks a question worth answering —
+and it is almost pure noise. A 1h BTC bar's empirical mean absolute move is
+~0.40% against a ~0.24% round trip, so you are asking a model to call a coin
+flip well enough to clear 60% of the move. (`nullres budget` quotes 45% instead,
+because it uses the Gaussian `E|move|` of 0.54%; fat tails make the real move
+smaller and the real bar higher — see docs/03.) `triple_barrier` instead asks a
+question worth answering —
 "does price travel 1.5 sigma up before it travels 1.5 sigma down" — which has
 a real, if small, autocorrelation structure and a payoff that exceeds costs.
 """
