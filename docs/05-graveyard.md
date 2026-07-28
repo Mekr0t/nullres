@@ -303,6 +303,78 @@ entered the out-of-sample result at all. MATICUSDT (delisted 2024-09-11) did.
 A universe fixed in 2021-12 still cannot capture assets that were never listed
 on Binance perps, so this is *less* survivorship-biased, not unbiased.
 
+## Wide cross-sectional (136 symbols)
+
+**Status:** dead as a tradable strategy. It contains the strongest verified
+signal in this project, and it still does not survive realistic costs.
+
+The narrow version above forced a two-name book, so the obvious next move was
+width. Universe enumerated mechanically from the archive — every USDT perp
+trading in 2021-12 (**136** symbols, including 9 that later delisted), screened
+to the top 40 by *trailing* dollar volume.
+
+```bash
+python -m tbot xsec --config configs/xsec_4h.toml --universe 2021-12 --top-n 40 \
+    --set data.metrics=false
+```
+
+**Width worked, exactly as hypothesised.** AUC rose 0.5443 -> **0.5575**, all
+five folds above 0.5 and *rising* over time (0.552 -> 0.581). Max drawdown at
+k=15 is -43.8% against the narrow book's -67.9%. Diversification did its job.
+
+**And the signal is real.** Every check passed:
+
+| check | result |
+|---|---|
+| shuffled labels | AUC 0.5018 — not a leak |
+| delisted contribution | 2% of gross P&L — not death-detection |
+| contributor spread | STORJ, BNB, BAKE, BEL long; ETH, DOGE, TRB, REEF short |
+
+At the configured 8bps the k=2 book returns **239x, Sharpe 1.61, t-stat 3.26** —
+the only t-stat above 3 this project has produced.
+
+### Why it is still dead
+
+**Costs.** The book makes its money shorting thin alts, and 8bps all-in is
+fiction for them:
+
+```
+  slippage   k=2    k=5   static
+     3bps   1.61   1.53    1.40
+    25bps   1.28   1.06    1.36
+    50bps   0.90   0.53    1.31
+   100bps   0.15  -0.49    1.20      <- Sharpe
+```
+
+The model's column collapses. `static_vs_alts` barely moves, because it spreads
+turnover across 40 small adjustments while the ML book flips whole ±0.5 weights
+in and out of illiquid names.
+
+**So the durable part needs no model** — it is long BTC, short a broad alt
+basket. And that is hindsight: BTC is the long leg because we know alts fell
+~90% against it over 2022-2025. In December 2021, after alt season, the
+consensus was the opposite trade. This is
+[02 — Leakage](02-leakage.md#7-hindsight-in-the-research-process-itself) wearing
+a cross-sectional costume.
+
+**Tail risk is untested, not absent.** A liquidation check found no bar worse
+than -11.8% and no case of being short a name that then exploded. That is not
+reassurance: >+65% four-hour moves occur ~12 times in 1.1M bars, and the book
+held ~13,800 short-name-bars, so the expected number of hits is **0.15**.
+Observing zero is what chance predicts. One UNFI-type event (+274% in 4h) against
+a -0.5 weight is -137% of capital, and the engine models no margin at all.
+
+**Lesson:** the strongest signal in the project, verified clean from four
+directions, and it still loses to arithmetic. Cost sensitivity is not a
+footnote to a backtest — for anything trading thin instruments it *is* the
+result, which is why `tbot xsec` now prints the sweep by default.
+
+*Two suspicions I raised during this investigation were wrong and are recorded
+so nobody re-chases them: the extreme bars are genuine market events (LUNA's
++346% is the real death-spiral bounce), not gap artifacts; and interior archive
+gaps do NOT produce spanning returns, because reindexing before differencing
+already yields NaN across holes.*
+
 ## Still open
 
 - **A better primary rule for `ml_meta`.** The meta-labeller currently filters a

@@ -29,7 +29,7 @@ import pandas as pd
 
 from tbot import audit as audit_mod
 from tbot.backtest.metrics import format_table
-from tbot.config import load_config
+from tbot.config import CostConfig, load_config
 from tbot.data import load_bars
 from tbot.pipeline import prepare, run_pipeline
 
@@ -334,13 +334,28 @@ def cmd_xsec(cfg, args) -> int:
         fit_predict_panel, load_panel, panel_positions,
     )
 
-    symbols = ([s.strip() for s in args.symbols.split(",") if s.strip()]
-               if args.symbols_given else UNIVERSE_2021_12)
+    if args.symbols_given:
+        symbols = [s.strip() for s in args.symbols.split(",") if s.strip()]
+    elif args.universe:
+        from tbot.data.universe import universe_as_of
+
+        # Index products, not single assets: BTCDOM is BTC dominance, DEFI a basket.
+        exclude = {"BTCDOMUSDT", "DEFIUSDT"}
+        symbols = [s for s in universe_as_of(args.universe, cfg.data.interval)
+                   if s not in exclude]
+    else:
+        symbols = UNIVERSE_2021_12
 
     _banner(f"CROSS-SECTIONAL: {len(symbols)} symbols, {cfg.data.interval}")
-    print("universe fixed as of 2021-12, NOT chosen from today's survivors\n")
+    if args.universe:
+        print(f"universe enumerated mechanically from the archive as of "
+              f"{args.universe} —")
+        print("every symbol that traded that month, including those that later died")
+    else:
+        print("universe fixed as of 2021-12, NOT chosen from today's survivors")
+    print()
 
-    panel = load_panel(cfg, symbols)
+    panel = load_panel(cfg, symbols, top_n=args.top_n)
     print(f"\n{len(panel.times):,} timestamps | {panel.features.shape[1]} ranked "
           f"features | {len(panel.features):,} panel rows")
     print(f"base rate {panel.y.mean():.4f} "
@@ -371,7 +386,14 @@ def cmd_xsec(cfg, args) -> int:
         results[name] = summarize(result, cfg.data.bars_per_year)
 
     stability = None
-    ks = (args.top_k,) if args.top_k else (2, 3, 4)
+    if args.top_k:
+        ks = (args.top_k,)
+    else:
+        # The point of a wide universe is that the same signal can be expressed
+        # through diversification instead of concentration. Sweeping k from
+        # narrow to wide is how you see whether that actually helps.
+        width = args.top_n or len(panel.symbols)
+        ks = (2, 3, 4) if width < 12 else (2, 5, 10, 15)
     for k in ks:
         positions = panel_positions(proba, panel, top_k=k, rebalance=args.rebalance)
         result = backtest_panel(positions, panel, cfg.cost)
@@ -389,6 +411,35 @@ def cmd_xsec(cfg, args) -> int:
         for _, row in stability.iterrows():
             print(f"  {row['period']:<8}{row['total_return']:>10.1%}"
                   f"{row['sharpe']:>9.2f}{row['n_trades']:>8,}")
+
+    # Cost sensitivity is not optional context here — it is the result. A wide
+    # crypto panel makes its money shorting thin alts, and the difference
+    # between 8bps and 60bps all-in is the difference between 239x and nothing.
+    print("\n--- cost sensitivity " + "-" * 55)
+    print("The config charges "
+          f"{cfg.cost.fee_bps + cfg.cost.slippage_bps:.0f}bps/side. That is about right "
+          "for BTC perps and\nfiction for thin alts — which is exactly what this "
+          "book shorts.\n")
+    header = f"  {'slip bps':>9}" + "".join(f"{f'k={k}':>12}" for k in ks) + f"{'static':>12}"
+    print(header)
+    print("  " + "-" * (len(header) - 2))
+    positions_by_k = {
+        k: panel_positions(proba, panel, top_k=k, rebalance=args.rebalance)
+        for k in ks
+    }
+    for slip in (cfg.cost.slippage_bps, 25.0, 50.0, 100.0):
+        trial_cost = CostConfig(fee_bps=cfg.cost.fee_bps, slippage_bps=float(slip))
+        cells = []
+        for k in ks:
+            m = summarize(backtest_panel(positions_by_k[k], panel, trial_cost),
+                          cfg.data.bars_per_year)
+            cells.append(f"{m['sharpe']:>12.2f}")
+        static = benchmarks(panel, trial_cost, oos_times,
+                            rebalance=args.rebalance).get("static_vs_alts")
+        tail = f"{summarize(static, cfg.data.bars_per_year)['sharpe']:>12.2f}" if static else ""
+        print(f"  {slip:>9.0f}" + "".join(cells) + tail)
+    print("\n  (Sharpe. If the model's column decays fast while static holds up,")
+    print("   the durable part of the result needs no model.)")
 
     print("\nRead this against static_vs_alts, not equal_weight. A model that")
     print("only learned 'the lowest-volatility member outperforms' has learned")
@@ -456,6 +507,11 @@ def main(argv: list[str] | None = None) -> int:
                         help="robust: symbols for the cross-symbol transfer test")
     parser.add_argument("--top-k", type=int, default=None,
                         help="xsec: symbols long and short per side")
+    parser.add_argument("--universe", default=None, metavar="YYYY-MM",
+                        help="xsec: enumerate the universe from the archive as "
+                             "of this month instead of the hardcoded 11")
+    parser.add_argument("--top-n", type=int, default=None,
+                        help="xsec: keep the top-N by trailing dollar volume")
     parser.add_argument("--rebalance", type=int, default=42,
                         help="xsec: bars between book rebalances (turnover control)")
     parser.add_argument("--transfer-start", default=None, metavar="YYYY-MM",

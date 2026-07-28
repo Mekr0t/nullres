@@ -62,32 +62,73 @@ class Panel:
     delisted: dict[str, pd.Timestamp] = field(default_factory=dict)
 
 
-def load_panel(cfg, symbols: list[str] | None = None,
-               verbose: bool = True) -> Panel:
-    """Load every symbol, build features, and stack into a cross-sectional panel."""
+def load_panel(cfg, symbols: list[str] | None = None, verbose: bool = True,
+               top_n: int | None = None, screen_window: int = 180) -> Panel:
+    """Load symbols, screen for liquidity, build features, stack into a panel.
+
+    Args:
+        top_n: keep only the top-N symbols by TRAILING dollar volume at each
+            bar. Without this a wide universe ranks BTC against coins that
+            traded $50k a day, which is a ranking you could not act on.
+            Screening on full-sample volume instead would be lookahead — it
+            selects the coins that went on to matter.
+    """
     symbols = symbols or UNIVERSE_2021_12
     d = cfg.data
     interval_hours = _INTERVAL_HOURS.get(d.interval, 4)
 
-    per_symbol: dict[str, pd.DataFrame] = {}
-    opens: dict[str, pd.Series] = {}
-    funding_cols: dict[str, pd.Series] = {}
+    # Pass 1: bars only. Cheap enough to hold the whole universe in memory,
+    # which is what lets the screen be computed before features are built.
+    bars_by_symbol: dict[str, pd.DataFrame] = {}
     delisted: dict[str, pd.Timestamp] = {}
-
     for symbol in symbols:
         bars = load_binance(symbol, d.interval, d.start, d.end, d.cache_dir,
                             verbose=False, market="um", required=False)
         if bars is None or len(bars) < 500:
-            if verbose:
-                print(f"  {symbol:<10} skipped (no usable data)")
             continue
+        bars_by_symbol[symbol] = bars
+        if bars.index[-1] < pd.Timestamp(d.end) - pd.Timedelta(days=60):
+            delisted[symbol] = bars.index[-1]
 
+    if len(bars_by_symbol) < 3:
+        raise SystemExit("need at least 3 symbols with data for a cross-section")
+
+    times = pd.DatetimeIndex(
+        sorted(set().union(*(b.index for b in bars_by_symbol.values())))
+    )
+    log_open = pd.DataFrame(
+        {s: np.log(b["open"]) for s, b in bars_by_symbol.items()}
+    ).reindex(times)
+
+    screen = None
+    if top_n:
+        from tbot.data.universe import liquidity_screen
+
+        dollar_volume = pd.DataFrame(
+            {s: b["volume"] * b["close"] for s, b in bars_by_symbol.items()}
+        ).reindex(times)
+        screen = liquidity_screen(dollar_volume, top_n=top_n, window=screen_window)
+        # Symbols never selected cannot influence any decision, so skip the
+        # cost of featurising them. This is an optimisation, not a filter:
+        # the time-varying screen below is what actually gates membership.
+        keep = [s for s in bars_by_symbol if screen[s].any()]
+        if verbose:
+            print(f"  liquidity screen: top {top_n} by {screen_window}-bar "
+                  f"trailing volume; {len(keep)} of {len(bars_by_symbol)} "
+                  f"symbols ever qualify")
+        bars_by_symbol = {s: bars_by_symbol[s] for s in keep}
+        screen = screen[keep]
+        log_open = log_open[keep]
+
+    _guard_metrics_fetch(d, list(bars_by_symbol))
+
+    # Pass 2: features, only for symbols that can ever be traded.
+    per_symbol: dict[str, pd.DataFrame] = {}
+    funding_cols: dict[str, pd.Series] = {}
+    for symbol, bars in bars_by_symbol.items():
         sym_cfg = _symbol_cfg(d, symbol)
         fund, metrics = load_auxiliary(sym_cfg, verbose=False, bars=bars)
-        feats = build_features(bars, funding=fund, metrics=metrics)
-
-        per_symbol[symbol] = feats
-        opens[symbol] = np.log(bars["open"])
+        per_symbol[symbol] = build_features(bars, funding=fund, metrics=metrics)
 
         if fund is not None and len(fund):
             # Funding settles every 8h; a bar of `interval_hours` carries that
@@ -99,22 +140,18 @@ def load_panel(cfg, symbols: list[str] | None = None,
         else:
             funding_cols[symbol] = pd.Series(0.0, index=bars.index)
 
-        if bars.index[-1] < pd.Timestamp(d.end) - pd.Timedelta(days=60):
-            delisted[symbol] = bars.index[-1]
-        if verbose:
-            print(f"  {symbol:<10} {len(bars):>6,} bars  "
+        if verbose and len(bars_by_symbol) <= 15:
+            print(f"  {symbol:<12} {len(bars):>6,} bars  "
                   f"{bars.index[0]:%Y-%m-%d}..{bars.index[-1]:%Y-%m-%d}"
                   + ("   DELISTED" if symbol in delisted else ""))
 
-    if len(per_symbol) < 3:
-        raise SystemExit("need at least 3 symbols with data for a cross-section")
-
-    times = pd.DatetimeIndex(sorted(set().union(*(f.index for f in per_symbol.values()))))
-    log_open = pd.DataFrame(opens).reindex(times)
-
     # open[t+1] -> open[t+2], per symbol. Same convention as the single-asset
     # engine: decided at close of t, filled at open of t+1.
-    ret_next = (log_open.shift(-2) - log_open.shift(-1))
+    ret_next = log_open.shift(-2) - log_open.shift(-1)
+    if screen is not None:
+        # Un-screened symbols are not tradable, so they must not contribute
+        # returns, ranks, or peer-group medians.
+        ret_next = ret_next.where(screen)
 
     funding = pd.DataFrame(funding_cols).reindex(times).fillna(0.0)
 
@@ -123,8 +160,9 @@ def load_panel(cfg, symbols: list[str] | None = None,
         names=["symbol", "ts"],
     ).swaplevel().sort_index()
 
-    ranked = _cross_sectional_rank(frame)
-    y = _relative_label(log_open, cfg.label.horizon)
+    ranked = _cross_sectional_rank(frame, screen)
+    y = _relative_label(log_open.where(screen) if screen is not None else log_open,
+                        cfg.label.horizon)
 
     common = ranked.index.intersection(y.index)
     return Panel(
@@ -135,7 +173,44 @@ def load_panel(cfg, symbols: list[str] | None = None,
         times=times,
         horizon=cfg.label.horizon,
         symbols=list(per_symbol),
-        delisted=delisted,
+        delisted={s: t for s, t in delisted.items() if s in per_symbol},
+    )
+
+
+def _guard_metrics_fetch(data_cfg, symbols: list[str],
+                         free_limit: int = 15) -> None:
+    """Refuse to silently start a multi-hour download.
+
+    Open-interest metrics are published ONE FILE PER DAY, so a wide panel needs
+    roughly `symbols x months x 30` requests — about 100,000 for 70 symbols over
+    four years, which is four hours of quiet network traffic with no output.
+
+    Funding and klines are monthly and cheap; only metrics have this cliff. The
+    check counts what is already cached, so re-runs and gradual backfills are
+    unaffected.
+    """
+    from pathlib import Path
+
+    if not getattr(data_cfg, "metrics", False):
+        return
+
+    cache = Path(data_cfg.cache_dir)
+    cached = {p.name.split("-metrics-")[0] for p in cache.glob("*-metrics-*.parquet")}
+    missing = [s for s in symbols if s not in cached]
+    if len(missing) <= free_limit:
+        return
+
+    months = len(pd.date_range(data_cfg.start, data_cfg.end, freq="MS"))
+    requests_needed = len(missing) * months * 30
+    raise SystemExit(
+        f"\n{len(missing)} of {len(symbols)} symbols have no cached open-interest "
+        f"metrics.\nFetching them needs roughly {requests_needed:,} requests "
+        f"(~{requests_needed / 25_000:.0f} hours), because Binance publishes "
+        f"metrics one file per day.\n\n"
+        f"Either run without them:\n"
+        f"    --set data.metrics=false\n"
+        f"or pre-cache deliberately in the background first. Refusing rather "
+        f"than starting a silent multi-hour download."
     )
 
 
@@ -147,7 +222,8 @@ def _symbol_cfg(data_cfg, symbol: str):
     return out
 
 
-def _cross_sectional_rank(frame: pd.DataFrame) -> pd.DataFrame:
+def _cross_sectional_rank(frame: pd.DataFrame,
+                          screen: pd.DataFrame | None = None) -> pd.DataFrame:
     """Replace each feature with its percentile rank WITHIN each timestamp.
 
     This is the transformation that makes the panel comparable. A raw RSI of 70
@@ -157,7 +233,17 @@ def _cross_sectional_rank(frame: pd.DataFrame) -> pd.DataFrame:
     every symbol's return z-score drops, but their ranks do not move.
 
     Uses only data at time t across symbols, so it is point-in-time safe.
+
+    When a liquidity `screen` is supplied, ranks are computed only among the
+    tradable symbols at that bar. Ranking against illiquid names would produce
+    an ordering you cannot act on, and would shift every percentile as coins
+    drift in and out of the archive.
     """
+    if screen is not None:
+        mask = screen.stack(future_stack=True)
+        mask.index.names = ["ts", "symbol"]
+        frame = frame.where(mask.reindex(frame.index).fillna(False), other=np.nan)
+
     ranked = frame.groupby(level="ts").rank(pct=True)
     # Timestamps with too few live symbols cannot support a ranking.
     live = frame.notna().any(axis=1).groupby(level="ts").sum()

@@ -219,6 +219,68 @@ def test_static_reference_benchmark_is_dollar_neutral():
     assert out["static_vs_alts"].position.iloc[10] == pytest.approx(2.0)
 
 
+def test_liquidity_screen_cannot_see_the_future():
+    """The screen must rank on TRAILING volume only.
+
+    A coin that becomes enormous in 2024 must not be selected in 2022. Screening
+    on full-sample average volume is the seductive version of this bug: it looks
+    like ordinary data hygiene and is actually a survivorship filter that picks
+    the assets that went on to matter.
+    """
+    from tbot.data.universe import liquidity_screen
+
+    times = pd.date_range("2022-01-01", periods=800, freq="4h")
+    vol = pd.DataFrame({
+        "STEADY": 1_000.0,
+        "SLEEPER": [1.0] * 400 + [1e9] * 400,   # explodes exactly halfway
+        "FADER": [1e6] * 400 + [1.0] * 400,
+    }, index=times)
+
+    screen = liquidity_screen(vol, top_n=2, window=100, min_history=100)
+
+    early, late = times[350], times[-1]
+    assert not screen.loc[early, "SLEEPER"], "selected a coin on future volume"
+    assert screen.loc[early, "FADER"], "should hold the historically liquid name"
+    assert screen.loc[late, "SLEEPER"], "should pick it up once volume is real"
+    assert not screen.loc[late, "FADER"], "should drop it once volume dies"
+
+
+def test_liquidity_screen_ignores_newly_listed_coins():
+    """A three-day-old coin with launch hype must not outrank real liquidity."""
+    from tbot.data.universe import liquidity_screen
+
+    times = pd.date_range("2022-01-01", periods=400, freq="4h")
+    vol = pd.DataFrame({
+        "OLD": 1_000.0,
+        "NEW": [np.nan] * 380 + [1e9] * 20,     # lists near the end, huge volume
+    }, index=times)
+
+    screen = liquidity_screen(vol, top_n=1, window=100, min_history=100)
+    assert not screen["NEW"].any(), "ranked a coin with no trailing history"
+    assert screen["OLD"].iloc[-1]
+
+
+def test_screened_out_symbols_do_not_affect_ranks():
+    """Ranks must be computed within the tradable set, not the whole archive."""
+    from tbot.crosssec import _cross_sectional_rank
+
+    idx = pd.date_range("2022-01-01", periods=2, freq="4h", name="ts")
+    values = {"A": 1.0, "B": 3.0, "C": 2.0, "JUNK": 99.0}
+    frame = pd.concat(
+        {s: pd.DataFrame({"f": [v, v]}, index=idx) for s, v in values.items()},
+        names=["symbol", "ts"],
+    ).swaplevel().sort_index()
+
+    screen = pd.DataFrame({"A": True, "B": True, "C": True, "JUNK": False},
+                          index=idx)
+    ranked = _cross_sectional_rank(frame, screen)
+
+    # JUNK has the largest raw value; excluding it makes B the top of three.
+    assert ranked.loc[(idx[0], "B"), "f"] == pytest.approx(1.0)
+    assert ranked.loc[(idx[0], "A"), "f"] == pytest.approx(1 / 3)
+    assert pd.isna(ranked.loc[(idx[0], "JUNK"), "f"])
+
+
 def test_funding_is_charged_on_held_positions():
     from tbot.config import CostConfig
     from tbot.crosssec import Panel

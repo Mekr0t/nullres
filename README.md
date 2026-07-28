@@ -102,6 +102,24 @@ model on return, Sharpe, drawdown and turnover at once. **A model can have
 genuine, verifiable skill and still be worthless.** Always build the dumbest
 strategy that could explain your result and check that you beat it.
 
+Widening that to **136 symbols** raised AUC to **0.5575** (5/5 folds, rising
+over time) and produced the only t-stat above 3 in the project — 239x at the
+configured 8bps. It is not a leak: shuffled labels give 0.5018, and the nine
+delisted symbols contribute 2% of P&L. It dies to costs instead:
+
+```
+  slippage   k=2    k=5   static        (Sharpe)
+     3bps   1.61   1.53    1.40
+    50bps   0.90   0.53    1.31
+   100bps   0.15  -0.49    1.20
+```
+
+The book earns its return shorting thin alts, where 8bps all-in is fiction.
+What survives realistic costs is the static bet, which needs no model — and
+which is hindsight, since BTC is its long leg only because we know how
+2022-2025 ended. `tbot xsec` now prints this sweep by default, because for
+anything trading thin instruments the cost sensitivity *is* the result.
+
 The last one is worth stating precisely, because the data and the strategy gave
 opposite answers. **Funding rates and open interest do carry information** —
 a matched-sample ablation raises mean AUC from 0.5199 to 0.5317, and the
