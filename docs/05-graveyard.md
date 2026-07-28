@@ -404,10 +404,14 @@ already yields NaN across holes.*
   coin flip.
 - **Order-book imbalance and on-chain flows.** The remaining sources of
   genuinely new information, now that funding and open interest are in.
-- **A wider cross-section.** Eleven symbols gives a thin ranking and forces a
-  two-name book. A universe of 50+ would let the same 0.544 AUC express itself
-  through diversification rather than concentration, which is the specific
-  reason the k=2 book carried a -78.6% drawdown.
-- **Lower-cost execution.** Nearly every result here dies on turnover. Maker
-  rebates or a tighter-spread venue move the arithmetic in `nullres budget` more
-  than any modelling change has.
+- **Lower-cost execution.** The clear front-runner, and the only lever never
+  pulled. Eight approaches have now died on turnover, and the wide
+  cross-sectional sweep put a number on it: the same book is Sharpe **1.53 at
+  3bps and -0.49 at 100bps**. Nothing else tried here — features, labels,
+  models, timeframes, universes — moved a result by remotely that much. Maker-
+  only execution, or a venue where these names are not 50bps wide, is the one
+  change that could revive a dead result rather than produce a new one.
+
+*(Removed: "a wider cross-section" — done, and it died. See the 136-symbol
+entry above. It confirmed the diversification hypothesis, raising AUC to 0.5575
+and cutting drawdown to -43.8% at k=15, and still lost to slippage.)*
