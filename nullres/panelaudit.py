@@ -43,14 +43,29 @@ def shuffled_label_auc(panel, cfg, seed: int = 0) -> float:
     Permuting *within* a timestamp rather than globally keeps the label balanced
     in every regime, so the control isolates the ranking signal instead of also
     destroying the panel's structure.
+
+    Each timestamp draws from a stream seeded by `(seed, that timestamp)`, so a
+    given bar receives the same permutation no matter where it falls in the
+    iteration. Sharing one generator across groups would have made the result
+    depend on processing order — reproducible only so long as nothing upstream
+    changed how the panel is grouped, which is not a property worth relying on
+    in a control whose whole job is to be trustworthy.
     """
     from nullres.crosssec import Panel, fit_predict_panel
 
-    rng = np.random.default_rng(seed)
-    y = panel.y.copy()
-    shuffled = y.groupby(level="ts").transform(
-        lambda g: pd.Series(rng.permutation(g.to_numpy()), index=g.index)
-    )
+    def permute(group: pd.Series) -> pd.Series:
+        ts = group.index.get_level_values("ts")[0]
+        rng = np.random.default_rng([seed, int(pd.Timestamp(ts).value)])
+        # Sort by symbol before permuting. Seeding per timestamp fixes which
+        # stream a bar draws from, but the permutation still lands on whatever
+        # order the values arrive in — so row order would otherwise decide which
+        # symbol got which label. Sorting first makes the symbol -> label
+        # assignment a function of the timestamp alone.
+        ordered = group.sort_index(level="symbol")
+        drawn = pd.Series(rng.permutation(ordered.to_numpy()), index=ordered.index)
+        return drawn.reindex(group.index)
+
+    shuffled = panel.y.groupby(level="ts", group_keys=False).apply(permute)
 
     control = Panel(features=panel.features, y=shuffled, ret_next=panel.ret_next,
                     funding=panel.funding, times=panel.times,
@@ -100,11 +115,23 @@ def pnl_contribution(positions: pd.DataFrame, panel) -> pd.Series:
 
 
 def delisted_share(positions: pd.DataFrame, panel) -> float:
-    """Fraction of GROSS P&L that came from symbols which later delisted.
+    """Share of P&L ACTIVITY, in absolute terms, from symbols that later delisted.
 
-    Gross of sign: a book whose profit is concentrated in dying coins is a book
-    betting on delisting, and the |.| keeps a large loss from cancelling a large
-    gain and hiding that.
+    **This is a share of absolute P&L, not of net profit, and the distinction
+    changes what the number means.** Each symbol contributes `|its P&L|`, so a
+    +30% winner and a -30% loser both count as 30 rather than cancelling to
+    zero. The question being asked is "how much of what this book did happened
+    in coins that were dying" — exposure, not profitability.
+
+    Netting would answer a different and weaker question. A book that made a
+    fortune on one delisting and lost it on another would net to ~0% and look
+    untouched by delisting, when in fact its entire outcome hinged on dying
+    coins. For a survivorship control that is the wrong answer, so the metric
+    deliberately does not net.
+
+    The consequence to keep in mind when reading it: this number cannot be
+    compared against a return, and it can be large while the delisted names
+    contributed nothing to the bottom line.
     """
     contribution = pnl_contribution(positions, panel).abs()
     total = float(contribution.sum())
@@ -173,8 +200,9 @@ def format_report(panel, cfg, proba, positions, mean_auc: float) -> str:
         )
 
     share = delisted_share(positions, panel)
-    lines.append(f"  delisted contribution  {share:.1%} of gross P&L "
-                 f"from {len(panel.delisted)} symbol(s) that stopped trading")
+    lines.append(f"  delisted contribution  {share:.1%} of ABSOLUTE P&L (not "
+                 f"netted) from {len(panel.delisted)} symbol(s) that stopped "
+                 f"trading")
 
     contribution = pnl_contribution(positions, panel)
     top = ", ".join(f"{s}" for s in contribution.index[:4])

@@ -12,13 +12,21 @@ concurrency:
 
 jobs:
   tests:
-    name: unit tests
+    name: unit tests (py${{ matrix.python }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      # Development happens on 3.14 and CI only ever ran 3.13, so the version
+      # the code is written against was never the version it was tested on.
+      # NOTE: pyproject declares `requires-python = ">=3.11"` and nothing tests
+      # 3.11 — either add it here or raise the floor to match reality.
+      matrix:
+        python: ["3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: ${{ matrix.python }}
           cache: pip
       - run: pip install -r requirements.txt
       - name: Fast suite
@@ -46,3 +54,43 @@ jobs:
       # config loading, the leak audit, and the exit code contract.
       - name: Leak audit (offline config)
         run: python -m nullres audit --config configs/null.toml
+
+  commands:
+    name: CLI commands run end to end
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      - run: pip install -r requirements.txt
+
+      # Unit tests cover the functions; nothing covered the commands that wire
+      # them together. A change to `verdict`'s return type broke `nullres
+      # robust` at the point of use and only a manual run caught it — CI would
+      # have stayed green. These run on synthetic data, so they need no network
+      # and no cached bars, and they assert only that the plumbing holds.
+      - name: budget
+        run: python -m nullres budget --config configs/null.toml
+      - name: run
+        run: python -m nullres run --config configs/null.toml
+      - name: robust (full battery, verdict, ledger write)
+        run: python -m nullres robust --config configs/null.toml --strategy donchian
+      - name: log
+        run: python -m nullres log
+
+      # The ledger must record what just happened. An empty runs/ here means a
+      # logging failure was swallowed — `_record` catches broadly on purpose.
+      - name: ledger recorded the runs
+        run: |
+          test -n "$(ls -A runs/*.json 2>/dev/null)" || {
+            echo "no run records written"; exit 1; }
+          python - <<'PY'
+          from nullres.runlog import load_runs
+          runs = load_runs()
+          commands = {r.command for r in runs}
+          assert {"run", "robust"} <= commands, f"missing records: {commands}"
+          assert any(r.verdict for r in runs), "robust recorded no verdict"
+          print(f"{len(runs)} records, commands={sorted(commands)}")
+          PY
