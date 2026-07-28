@@ -12,6 +12,46 @@ caveat is not boilerplate; see [02 — Leakage](docs/02-leakage.md#7-hindsight-i
 
 ---
 
+## Read this before any table below: the multiple-testing correction
+
+Roughly **214 parameter combinations** were explored to produce this document —
+six configs across ~six strategies, two 25-cell threshold sweeps, four
+robustness batteries of ~20 grid cells each, ablations, k-sweeps and cost
+sweeps. Searching that many variants finds good-looking results in pure noise.
+
+`deflated_sharpe` subtracts the Sharpe you would expect to reach by luck given
+the number of trials. It was originally wired to the count of strategies in a
+single run — six — which badly understated the exposure. Re-deflating the
+headline results honestly:
+
+| result | sharpe | deflated @ 6 | deflated @ 214 |
+|---|---|---|---|
+| xsec wide k=2 | 1.61 | 0.88 | **0.05** |
+| xsec wide k=5 | 1.53 | 0.80 | **-0.03** |
+| xsec wide static_vs_alts | 1.40 | 0.67 | -0.16 |
+| xsec wide k=15 | 1.05 | 0.32 | -0.51 |
+| xsec 11-symbol static | 0.78 | 0.05 | -0.78 |
+| donchian 4h | 0.52 | -0.09 | -0.78 |
+| BTC buy & hold, 1h | 0.46 | -0.12 | -0.77 |
+
+**Nothing in this repository survives its own multiple-testing correction.**
+The best result — the wide cross-sectional book, Sharpe 1.61, t-stat 3.26 — has
+a deflated Sharpe of **0.05**, which is indistinguishable from zero. That is
+before its costs are made realistic, which separately takes it to -0.49.
+
+Sensitivity, so the number is not taken as precise:
+
+```
+  trials      1      6     25    100    200    500   1000
+  deflated  1.61   0.88   0.49   0.19   0.05  -0.11  -0.22
+```
+
+The trial count is now read from the run ledger rather than assumed, and
+`prior_trials` in each config declares the exposure that predates it.
+`nullres run` prints the count it used.
+
+---
+
 ## 1. Single-asset direction — BTCUSDT
 
 Purged walk-forward, 12bps/side, out-of-sample 2020-12 to 2025-12.

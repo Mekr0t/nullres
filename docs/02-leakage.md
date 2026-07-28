@@ -137,6 +137,18 @@ If you must select, `metrics.deflated_sharpe` subtracts the Sharpe you would
 expect to reach by luck given `n_trials`. Searching 100 variants on pure noise
 yields a best-of-100 Sharpe around 0.6 for free.
 
+**The hard part is counting honestly.** `n_trials` was originally the number of
+strategies in the current run — six — for a project that had explored 214
+parameter combinations. That understated the penalty on every result published
+here. Deflating the best one (Sharpe 1.61) against six trials leaves 0.88;
+against the true count it leaves **0.05**.
+
+The count now comes from the run ledger (`runs/`), which records how many
+variants each run evaluated — a 25-cell sweep is 25 trials, not one — plus a
+`prior_trials` field for exposure predating the ledger. It is deliberately
+global rather than per-config: a researcher who would have published whichever
+of six configs worked has tried six, not one.
+
 ## 7. Hindsight in the research process itself
 
 The subtlest one, and the only one with no code fix. You know BTC went up

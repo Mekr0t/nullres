@@ -112,6 +112,11 @@ class RunConfig:
     # result can be reproduced from.
     params: dict[str, dict[str, Any]] = field(default_factory=dict)
     out_dir: str = "reports"
+    # Parameter combinations explored BEFORE the run ledger existed. The
+    # deflated Sharpe needs the true number of variants tried, and the ledger
+    # only knows about runs it recorded. Undercounting flatters every result,
+    # so an honest estimate of prior work belongs here.
+    prior_trials: int = 0
 
 
 def _build(cls: type, raw: dict[str, Any], path: str = "") -> Any:

@@ -93,6 +93,96 @@ def test_record_captures_provenance(cfg, tmp_path):
     assert on_disk["metrics"]["sharpe"] == 0.5
 
 
+def test_trial_count_sums_variants_not_runs(cfg, tmp_path):
+    """A 25-cell sweep is 25 trials, not one.
+
+    Counting runs instead of variants is how `n_trials=6` got reported for a
+    project that had explored over two hundred parameter combinations.
+    """
+    from nullres.runlog import count_trials
+
+    record_run(cfg, "run", variants=6, runs_dir=str(tmp_path))
+    record_run(cfg, "sweep", variants=25, runs_dir=str(tmp_path))
+    record_run(cfg, "robust", variants=24, runs_dir=str(tmp_path))
+
+    runs = load_runs(str(tmp_path))
+    assert len(runs) == 3
+    assert count_trials(runs) == 55
+    assert count_trials(runs, prior=200) == 255
+
+
+def test_trial_count_never_undercounts_to_zero(cfg, tmp_path):
+    """A record with no declared variants still counts as one look."""
+    from nullres.runlog import count_trials
+
+    record_run(cfg, "run", variants=0, runs_dir=str(tmp_path))
+    assert count_trials(load_runs(str(tmp_path))) == 1
+
+
+def test_deflation_strengthens_as_trials_accumulate():
+    """The whole point: looking more times must lower the surviving Sharpe.
+
+    Measured on the project's best result (wide cross-sectional k=2, Sharpe
+    1.61 over 6,909 bars): 0.88 at the six trials that were previously
+    reported, 0.05 at the ~200 actually explored.
+    """
+    from nullres.backtest.metrics import deflated_sharpe
+
+    values = [deflated_sharpe(1.61, 6909, 2190, n) for n in (1, 6, 25, 200, 1000)]
+    assert values == sorted(values, reverse=True), "more trials must deflate more"
+    assert values[1] > 0.8, "six trials barely penalises it"
+    assert abs(values[3]) < 0.15, "two hundred trials leaves nothing"
+    assert values[4] < 0
+
+
+def test_prior_trials_does_not_change_config_identity(cfg):
+    """Declaring past exposure is metadata, not a different experiment."""
+    other = copy.deepcopy(cfg)
+    other.prior_trials = 500
+    assert config_hash(other) == config_hash(cfg)
+    assert config_distance(cfg, other)[0] == 0
+
+
+def test_cli_record_helper_accepts_every_field_commands_pass(cfg, monkeypatch, tmp_path):
+    """The CLI helper and `record_run` must not drift apart.
+
+    They did: `variants` was added to `record_run` but not to `_record`, so
+    every `run` crashed with a TypeError *after* printing its results. The
+    failure was invisible in normal output because the traceback went to stderr.
+    """
+    import inspect
+
+    from nullres import cli
+    from nullres.runlog import record_run as real_record
+
+    helper = set(inspect.signature(cli._record).parameters) - {"cfg", "command"}
+    backend = set(inspect.signature(real_record).parameters) - {
+        "cfg", "command", "runs_dir", "repo"}
+    assert helper == backend, (
+        f"cli._record and record_run have drifted: "
+        f"helper-only={helper - backend}, backend-only={backend - helper}"
+    )
+
+    monkeypatch.chdir(tmp_path)
+    cli._record(cfg, "run", metrics={"a": 1}, verdict="KILLED",
+                notes="n", variants=7)
+    written = list((tmp_path / "runs").glob("*.json"))
+    assert len(written) == 1
+    assert json.loads(written[0].read_text())["variants"] == 7
+
+
+def test_a_logging_failure_never_kills_a_completed_run(cfg, monkeypatch, capsys):
+    """Bookkeeping must not destroy a result that already computed."""
+    from nullres import cli
+
+    def boom(*a, **k):
+        raise RuntimeError("disk on fire")
+
+    monkeypatch.setattr("nullres.runlog.record_run", boom)
+    cli._record(cfg, "run")                     # must not raise
+    assert "run log write failed" in capsys.readouterr().out
+
+
 def test_corrupt_records_are_skipped_not_fatal(tmp_path):
     (tmp_path / "20260101-000000-deadbeef.json").write_text("{not json")
     (tmp_path / "20260101-000001-cafe0000.json").write_text('{"unexpected": 1}')

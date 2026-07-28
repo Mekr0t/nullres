@@ -155,11 +155,22 @@ costume. Six lines of output, one afternoon, instead of six months.
 | cross-sectional (136) | **AUC 0.5575, t-stat 3.26 — dies to slippage** |
 
 That last row is the one to read. The signal is real: shuffled labels give
-0.5018, delisted symbols contribute 2% of P&L, and the result survives four
-independent leak checks. At 3bps it returns 239x. At 100bps its Sharpe is 0.15.
+0.5018, delisted symbols contribute 2% of P&L, and it survives four independent
+leak checks. It dies twice over anyway — once to costs (Sharpe 1.61 at 3bps,
+0.15 at 100bps), and once to arithmetic nobody enjoys:
 
-**Does the framework work?** It told me eight times that I had nothing — once
-when the Sharpe was 1.61 and the t-stat cleared 3. That is the product.
+```
+  trials      1      6     25    100    200    500
+  deflated  1.61   0.88   0.49   0.19   0.05  -0.11
+```
+
+~214 parameter combinations were explored to produce these results. Deflating
+the best one against that count leaves **0.05** — indistinguishable from zero.
+`nullres` reads the trial count from its own run ledger, so this correction
+applies itself rather than depending on anyone remembering to.
+
+**Does the framework work?** It told me eight times that I had nothing, then
+told me my own headline number was luck. That is the product.
 
 ---
 

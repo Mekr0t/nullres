@@ -31,7 +31,7 @@ from nullres import audit as audit_mod
 from nullres.backtest.metrics import format_table
 from nullres.config import CostConfig, load_config
 from nullres.data import load_bars
-from nullres.pipeline import prepare, run_pipeline
+from nullres.pipeline import prepare, run_pipeline, trials_so_far
 
 
 def _banner(text: str) -> None:
@@ -47,16 +47,23 @@ def _warn_if_already_killed(cfg) -> None:
         print(f"\n{warning}\n")
 
 
-def _record(cfg, command, metrics=None, verdict=None, notes="") -> None:
+def _record(cfg, command, metrics=None, verdict=None, notes="",
+            variants: int = 1) -> None:
     """Append to the run ledger. Never fatal — a logging failure must not
-    invalidate a result that has already been computed."""
+    invalidate a result that has already been computed.
+
+    The catch is deliberately broad. A bookkeeping bug destroying a backtest
+    that already ran is the wrong trade, and the first version of this caught
+    only OSError, so a signature mismatch took down every `run` after printing
+    the full results.
+    """
     from nullres.runlog import record_run
 
     try:
         record = record_run(cfg, command, metrics=metrics, verdict=verdict,
-                            notes=notes)
-    except OSError as exc:
-        print(f"  (run log write failed: {exc})")
+                            notes=notes, variants=variants)
+    except Exception as exc:                              # noqa: BLE001
+        print(f"  (run log write failed: {type(exc).__name__}: {exc})")
         return
     dirty = " +uncommitted" if record.git_dirty else ""
     print(f"\nlogged as runs/ [{record.short_id}]  "
@@ -136,13 +143,16 @@ def cmd_run(cfg, args) -> int:
               f"Rows, splits and benchmark are unchanged.")
         results = run_pipeline(cfg, ctx=ctx)
     else:
-        results = run_pipeline(cfg)
+        n_trials = args.trials or trials_so_far(cfg, extra=len(cfg.strategies) + 1)
+    results = run_pipeline(cfg, n_trials=n_trials)
 
     _banner("RESULTS (out-of-sample only)")
     print(format_table(results))
 
     bh = results.get("buy_hold", {})
-    print(f"\nDeflated Sharpe (adjusted for {len(results)} variants tried):")
+    print(f"\nDeflated Sharpe (adjusted for {n_trials:,} variants tried across "
+          f"the whole run ledger,")
+    print(f"not just this run — see `nullres log`):")
     for name, m in results.items():
         verdict = "" if m["deflated_sharpe"] > 0 else "   <- indistinguishable from luck"
         print(f"  {name:<18}{m['deflated_sharpe']:>7.2f}{verdict}")
@@ -162,10 +172,11 @@ def cmd_run(cfg, args) -> int:
         path.write_text(json.dumps(results, indent=2, default=float))
         print(f"\nwrote {path}")
 
-    _record(cfg, "run", metrics={
-        name: {k: m[k] for k in ("total_return", "sharpe", "max_dd", "t_stat",
-                                 "n_trades", "deflated_sharpe")}
-        for name, m in results.items()
+    _record(cfg, "run", variants=len(results), metrics={
+        "n_trials_used": n_trials,
+        **{name: {k: m[k] for k in ("total_return", "sharpe", "max_dd", "t_stat",
+                                    "n_trades", "deflated_sharpe")}
+           for name, m in results.items()},
     })
     return 0
 
@@ -248,9 +259,11 @@ def cmd_sweep(cfg, args) -> int:
             cells.append(f"{res[strategy]['sharpe']:>9.2f}")
         print(f"{entry:<12.2f}" + "".join(cells))
 
+    cells = len(entries) * len(holds)
     print("\nIf the best cell is isolated, you found noise. If a contiguous")
     print("region is positive, you may have found something — but you have now")
-    print(f"tried {len(entries) * len(holds)} variants, so deflate accordingly.")
+    print(f"tried {cells} variants, so deflate accordingly.")
+    _record(cfg, "sweep", notes=f"strategy={strategy}", variants=cells)
     return 0
 
 
@@ -353,6 +366,7 @@ def cmd_robust(cfg, args) -> int:
     logged = _copy.deepcopy(cfg)
     logged.strategies = [strategy]
     _record(logged, "robust", verdict="SURVIVED" if ok else "KILLED",
+            variants=len(grid) + len(transfer),
             notes=f"strategy={strategy}; " + " | ".join(notes),
             metrics={
                 "strategy": strategy,
@@ -416,7 +430,7 @@ def cmd_ablate(cfg, args) -> int:
         print("  even for a real effect — it is a reason to gather more evidence,")
         print("  not a reason to believe the difference is zero.")
 
-    _record(cfg, "ablate", notes=f"group={group}", metrics={
+    _record(cfg, "ablate", notes=f"group={group}", variants=2, metrics={
         "group": group,
         "auc_with": float(a.mean()),
         "auc_without": float(b.mean()),
@@ -548,6 +562,7 @@ def cmd_xsec(cfg, args) -> int:
     print("and three trades. Beating equal_weight is not evidence of anything.")
 
     _record(cfg, "xsec", notes=f"{len(panel.symbols)} symbols, top_n={args.top_n}",
+            variants=len(results),
             metrics={
                 "n_symbols": len(panel.symbols),
                 "n_delisted": len(panel.delisted),
@@ -612,6 +627,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--strategy", "-s", default="ml_meta",
                         help="sweep: which strategy to sweep")
     parser.add_argument("--save", action="store_true", help="run: write metrics JSON")
+    parser.add_argument("--trials", type=int, default=None,
+                        help="override the multiple-testing trial count used by "
+                             "deflated_sharpe (default: read from the run ledger)")
     parser.add_argument("--verdict", default=None, choices=["KILLED", "SURVIVED"],
                         help="log: show only runs with this verdict")
     parser.add_argument("--limit", type=int, default=25,

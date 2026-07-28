@@ -33,7 +33,7 @@ RUNS_DIR = "runs"
 
 # Changing these does not make an experiment a different experiment, so they are
 # excluded from the fingerprint and from distance comparisons.
-COSMETIC = {"name", "out_dir", "cache_dir"}
+COSMETIC = {"name", "out_dir", "cache_dir", "prior_trials"}
 
 
 @dataclass
@@ -51,6 +51,11 @@ class RunRecord:
     metrics: dict[str, Any] = field(default_factory=dict)
     verdict: str | None = None          # KILLED | SURVIVED | None
     notes: str = ""
+    # How many distinct parameter combinations this run evaluated. A `run` over
+    # five strategies is five; a 25-cell sweep is twenty-five. This is the
+    # multiple-testing exposure the run added, and summing it across the ledger
+    # is the only honest input to `deflated_sharpe`.
+    variants: int = 1
 
     @property
     def short_id(self) -> str:
@@ -115,8 +120,23 @@ def _git_state(repo: Path) -> tuple[str, bool]:
     return sha, dirty
 
 
+def count_trials(runs: list[RunRecord], prior: int = 0) -> int:
+    """Total parameter combinations explored, across every recorded run.
+
+    This is deliberately GLOBAL rather than scoped to one config. The question
+    multiple-testing correction asks is "how many things did you look at before
+    reporting this one", and a researcher who would have published whichever of
+    six configs worked has tried all six — not one.
+
+    `prior` declares trials that predate the ledger. Undercounting is the
+    failure this whole function exists to fix, so an honest estimate of past
+    work belongs here rather than a zero.
+    """
+    return prior + sum(max(r.variants, 1) for r in runs)
+
+
 def record_run(cfg: Any, command: str, metrics: dict[str, Any] | None = None,
-               verdict: str | None = None, notes: str = "",
+               verdict: str | None = None, notes: str = "", variants: int = 1,
                runs_dir: str = RUNS_DIR, repo: Path | None = None) -> RunRecord:
     """Append one record. Never overwrites: the log is a ledger, not a cache."""
     repo = repo or Path.cwd()
@@ -140,6 +160,7 @@ def record_run(cfg: Any, command: str, metrics: dict[str, Any] | None = None,
         metrics=metrics or {},
         verdict=verdict,
         notes=notes,
+        variants=max(int(variants), 1),
     )
 
     out = Path(runs_dir)

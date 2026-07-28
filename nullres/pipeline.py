@@ -128,7 +128,25 @@ def coherence_warnings(cfg, bars: pd.DataFrame) -> list[str]:
     return out
 
 
-def run_pipeline(cfg, verbose: bool = True, ctx: Context | None = None) -> dict[str, dict]:
+def trials_so_far(cfg, extra: int = 0) -> int:
+    """Multiple-testing exposure: everything looked at before reporting this.
+
+    Reads the run ledger rather than counting strategies in the current run.
+    Counting only the current run is the mistake this replaces — it reported
+    `n_trials=6` for a project that had explored well over a hundred parameter
+    combinations, which made every deflated Sharpe too generous.
+    """
+    from nullres.runlog import count_trials, load_runs
+
+    try:
+        history = load_runs()
+    except OSError:
+        history = []
+    return max(count_trials(history, prior=getattr(cfg, "prior_trials", 0)) + extra, 1)
+
+
+def run_pipeline(cfg, verbose: bool = True, ctx: Context | None = None,
+                 n_trials: int | None = None) -> dict[str, dict]:
     """Run every configured strategy and return {name: metrics}.
 
     A caller may pass a prepared `ctx` to avoid recomputing features when only
@@ -143,7 +161,8 @@ def run_pipeline(cfg, verbose: bool = True, ctx: Context | None = None) -> dict[
         ctx.verbose = verbose
 
     names = list(dict.fromkeys(["buy_hold", *cfg.strategies]))
-    n_trials = max(len(names), 1)
+    if n_trials is None:
+        n_trials = trials_so_far(cfg, extra=len(names))
     results: dict[str, dict] = {}
 
     for name in names:

@@ -8,6 +8,12 @@ name = "btc_1h"
 strategies = ["sma_cross", "donchian", "mean_reversion", "ml_direction", "ml_meta"]
 out_dir = "reports"
 
+# Parameter combinations explored before the run ledger existed: six configs
+# x ~six strategies, two 25-cell sweeps, four robustness batteries, ablations
+# and cost sweeps. Declaring it is what keeps `deflated_sharpe` honest -- the
+# ledger cannot know about work it did not record.
+prior_trials = 214
+
 [data]
 symbol = "BTCUSDT"
 interval = "1h"
