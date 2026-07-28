@@ -20,10 +20,10 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from tbot.backtest.sizing import apply_min_hold, apply_vol_target, signal_to_position
-from tbot.models.classifier import fit_predict_walk_forward
-from tbot.strategies.base import Context, cached_proba, mask_to_oos
-from tbot.strategies.rules import SMACross
+from nullres.backtest.sizing import apply_min_hold, apply_vol_target, signal_to_position
+from nullres.models.classifier import fit_predict_walk_forward
+from nullres.strategies.base import Context, cached_proba, mask_to_oos
+from nullres.strategies.rules import SMACross
 
 
 class MLDirection:

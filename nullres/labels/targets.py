@@ -9,7 +9,7 @@ Every label returns a frame with a uniform contract:
 
 `t_end` is the load-bearing column. A label spanning bars t..t+20 must not sit
 in a training set whose test window begins at t+5 — the training label already
-contains the answer to the test period. `tbot.validation` purges on this column.
+contains the answer to the test period. `nullres.validation` purges on this column.
 A fixed purge constant is only correct when every label has the same horizon,
 which stops being true the moment you use barriers.
 

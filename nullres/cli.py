@@ -1,12 +1,12 @@
 """Command line interface.
 
-    tbot fetch    --config configs/btc_1h.toml     download and cache bars
-    tbot budget   --config configs/btc_1h.toml     accuracy needed to beat costs
-    tbot audit    --config configs/btc_1h.toml     leakage + null-data checks
-    tbot run      --config configs/btc_1h.toml     backtest every strategy
-    tbot sweep    --config configs/btc_1h.toml     threshold sensitivity surface
-    tbot features --config configs/btc_1h.toml     out-of-sample importances
-    tbot robust   --config configs/btc_4h.toml -s donchian
+    nullres fetch    --config configs/btc_1h.toml     download and cache bars
+    nullres budget   --config configs/btc_1h.toml     accuracy needed to beat costs
+    nullres audit    --config configs/btc_1h.toml     leakage + null-data checks
+    nullres run      --config configs/btc_1h.toml     backtest every strategy
+    nullres sweep    --config configs/btc_1h.toml     threshold sensitivity surface
+    nullres features --config configs/btc_1h.toml     out-of-sample importances
+    nullres robust   --config configs/btc_4h.toml -s donchian
                                                    three falsification tests:
                                                    parameter neighbourhood,
                                                    sub-period stability vs hold,
@@ -14,7 +14,7 @@
 
 Any option can be overridden without editing the file:
 
-    tbot run -c configs/btc_1h.toml --set sizing.min_hold=168
+    nullres run -c configs/btc_1h.toml --set sizing.min_hold=168
 """
 
 from __future__ import annotations
@@ -27,11 +27,11 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from tbot import audit as audit_mod
-from tbot.backtest.metrics import format_table
-from tbot.config import CostConfig, load_config
-from tbot.data import load_bars
-from tbot.pipeline import prepare, run_pipeline
+from nullres import audit as audit_mod
+from nullres.backtest.metrics import format_table
+from nullres.config import CostConfig, load_config
+from nullres.data import load_bars
+from nullres.pipeline import prepare, run_pipeline
 
 
 def _banner(text: str) -> None:
@@ -39,7 +39,7 @@ def _banner(text: str) -> None:
 
 
 def cmd_fetch(cfg, args) -> int:
-    from tbot.data import load_auxiliary
+    from nullres.data import load_auxiliary
 
     bars = load_bars(cfg.data)
     print(f"\n{len(bars):,} bars cached in {cfg.data.cache_dir}/")
@@ -65,7 +65,7 @@ def cmd_run(cfg, args) -> int:
           f"min_hold={cfg.sizing.min_hold}")
 
     if args.ablate:
-        from tbot.pipeline import ablate
+        from nullres.pipeline import ablate
 
         ctx = prepare(cfg)
         before = ctx.features.shape[1]
@@ -90,7 +90,7 @@ def cmd_run(cfg, args) -> int:
     print(f"  - buy & hold returned {bh.get('total_return', 0):.1%} "
           f"at sharpe {bh.get('sharpe', 0):.2f} for zero effort.")
     print("  - a strategy is only interesting if it beats that RISK-ADJUSTED,")
-    print("    survives `tbot audit`, and has a t-stat above ~3.")
+    print("    survives `nullres audit`, and has a t-stat above ~3.")
     print("  - these are in-sample-of-the-research-process results. The only")
     print("    honest test left is forward paper trading on bars you have never seen.")
 
@@ -111,8 +111,8 @@ def cmd_audit(cfg, args) -> int:
     print("\n1/4 point-in-time feature check (recomputing on truncated history)")
     # Rebuild through the same auxiliary data the pipeline used, so the
     # funding/OI join is covered by the truncation test rather than exempt.
-    from tbot.data import load_auxiliary
-    from tbot.features import build_features as _bf
+    from nullres.data import load_auxiliary
+    from nullres.features import build_features as _bf
 
     funding, metrics = load_auxiliary(cfg.data, verbose=False, bars=ctx.bars)
     checks.append(audit_mod.check_point_in_time(
@@ -158,7 +158,7 @@ def cmd_sweep(cfg, args) -> int:
     _banner(f"SWEEP: {cfg.name} — entry threshold vs min_hold")
     ctx = prepare(cfg)
 
-    # The hold range spans the break-even table from `tbot budget`, because
+    # The hold range spans the break-even table from `nullres budget`, because
     # that is the axis that actually decides the outcome at these cost levels.
     entries = [0.52, 0.54, 0.56, 0.58, 0.60]
     holds = [12, 48, 168, 336, 720]
@@ -194,7 +194,7 @@ def cmd_budget(cfg, args) -> int:
     seconds, and it will tell you whether the thing you are about to attempt is
     possible at all.
     """
-    from tbot.costs import budget_table
+    from nullres.costs import budget_table
 
     _banner(f"COST BUDGET: {cfg.data.symbol} {cfg.data.interval}")
     bars = load_bars(cfg.data)
@@ -211,7 +211,7 @@ def cmd_budget(cfg, args) -> int:
 
 def cmd_robust(cfg, args) -> int:
     """Try three times to kill a strategy that looked good once."""
-    from tbot.robustness import (
+    from nullres.robustness import (
         cross_symbol, grid_for, parameter_neighbourhood,
         period_stability, pivot_grid, sign_flip_rate, verdict,
     )
@@ -286,8 +286,8 @@ def cmd_ablate(cfg, args) -> int:
     """
     from scipy import stats as sps
 
-    from tbot.models.classifier import fit_predict_walk_forward
-    from tbot.pipeline import ablate
+    from nullres.models.classifier import fit_predict_walk_forward
+    from nullres.pipeline import ablate
 
     group = args.ablate or "derivatives"
     _banner(f"ABLATION: {group} on {cfg.name}")
@@ -328,8 +328,8 @@ def cmd_ablate(cfg, args) -> int:
 
 def cmd_xsec(cfg, args) -> int:
     """Cross-sectional long/short on a panel of symbols."""
-    from tbot.backtest.metrics import by_period, format_table, summarize
-    from tbot.crosssec import (
+    from nullres.backtest.metrics import by_period, format_table, summarize
+    from nullres.crosssec import (
         UNIVERSE_2021_12, backtest_panel, benchmarks,
         fit_predict_panel, load_panel, panel_positions,
     )
@@ -337,7 +337,7 @@ def cmd_xsec(cfg, args) -> int:
     if args.symbols_given:
         symbols = [s.strip() for s in args.symbols.split(",") if s.strip()]
     elif args.universe:
-        from tbot.data.universe import universe_as_of
+        from nullres.data.universe import universe_as_of
 
         # Index products, not single assets: BTCDOM is BTC dominance, DEFI a basket.
         exclude = {"BTCDOMUSDT", "DEFIUSDT"}
@@ -449,7 +449,7 @@ def cmd_xsec(cfg, args) -> int:
 
 
 def cmd_features(cfg, args) -> int:
-    from tbot.models.classifier import feature_importance
+    from nullres.models.classifier import feature_importance
 
     _banner(f"FEATURE IMPORTANCE: {cfg.name}")
     ctx = prepare(cfg)
@@ -460,7 +460,7 @@ def cmd_features(cfg, args) -> int:
         cfg.split, cfg.model,
     )
 
-    from tbot.features import DERIVATIVE_DOC
+    from nullres.features import DERIVATIVE_DOC
 
     derived = set(DERIVATIVE_DOC)
     for name, value in imp.items():
@@ -493,7 +493,7 @@ COMMANDS = {
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="tbot", description=__doc__,
+    parser = argparse.ArgumentParser(prog="nullres", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("command", choices=sorted(COMMANDS))
     parser.add_argument("--config", "-c", default="configs/btc_1h.toml")

@@ -45,4 +45,4 @@ jobs:
       # Belt and braces: the same check through the CLI, which also exercises
       # config loading, the leak audit, and the exit code contract.
       - name: Leak audit (offline config)
-        run: python -m tbot audit --config configs/null.toml
+        run: python -m nullres audit --config configs/null.toml

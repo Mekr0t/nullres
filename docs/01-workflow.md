@@ -20,7 +20,7 @@ The point of writing it down is that it constrains what counts as success
 ## 1. Check the cost budget — 2 seconds
 
 ```bash
-python -m tbot budget --config configs/btc_1h.toml
+python -m nullres budget --config configs/btc_1h.toml
 ```
 
 Can any plausible accuracy clear the costs at the holding period you have in
@@ -32,7 +32,7 @@ Most ideas should die here. That is the step working.
 ## 2. Verify the harness on data with known answers — 1 minute
 
 ```bash
-python -m tbot run --config configs/null.toml
+python -m nullres run --config configs/null.toml
 ```
 
 Every strategy must be flat-to-negative on a random walk. Positive Sharpe means
@@ -41,7 +41,7 @@ a bug, and every other result is void until you find it.
 ## 3. Audit for leakage — 1 minute
 
 ```bash
-python -m tbot audit --config configs/btc_1h.toml
+python -m nullres audit --config configs/btc_1h.toml
 ```
 
 Four checks: point-in-time features, single-feature AUC, shuffled-label control,
@@ -51,7 +51,7 @@ Each new feature is a fresh chance to introduce lookahead.
 ## 4. Run the baselines before the model
 
 ```bash
-python -m tbot run --config configs/btc_1h.toml
+python -m nullres run --config configs/btc_1h.toml
 ```
 
 Look at `buy_hold`, `sma_cross`, `donchian` **first**. That is the bar. A model
@@ -81,7 +81,7 @@ regime artefact, not an edge.
 ## 6. Sweep for sensitivity, not for a winner
 
 ```bash
-python -m tbot sweep --config configs/btc_1h.toml --strategy ml_meta
+python -m nullres sweep --config configs/btc_1h.toml --strategy ml_meta
 ```
 
 Read the **shape**. A real edge degrades smoothly as parameters move. An
@@ -94,7 +94,7 @@ you would expect to reach by luck at that count.
 ## 7. Check which features actually carried
 
 ```bash
-python -m tbot features --config configs/btc_1h.toml
+python -m nullres features --config configs/btc_1h.toml
 ```
 
 Permutation importance on the final fold's *test* window. In-sample importance
@@ -104,7 +104,7 @@ much shorter list. Most values will be ~0. That is the normal result.
 ## 8. Try to kill anything that looks good
 
 ```bash
-python -m tbot robust --config configs/btc_4h.toml --strategy donchian
+python -m nullres robust --config configs/btc_4h.toml --strategy donchian
 ```
 
 Three attempts to falsify, all of which a real effect should survive:
@@ -135,7 +135,7 @@ Three attempts to falsify, all of which a real effect should survive:
 This is where the repo's one promising result died. `donchian` on 4h passed the
 first and third tests comfortably and failed the second: its whole five-year
 Sharpe advantage came from 2022, and it underperformed holding in every
-trending year. See the README for the table.
+trending year. The table is in [the graveyard](05-graveyard.md#donchian-breakout-on-4h).
 
 Surviving all three does not certify a strategy. It only means it has not yet
 been cheaply disproved.
@@ -154,19 +154,19 @@ disagree, the backtest was wrong.
 
 ## Adding a feature
 
-1. Add it to `build_features` in `tbot/features/technical.py`.
+1. Add it to `build_features` in `nullres/features/technical.py`.
 2. Document it in `FEATURE_DOC` — if you cannot say what it measures in one
    line, you do not know why you added it.
 3. Keep it **stationary**: a ratio, a z-score, or a bounded oscillator. No raw
    price levels. BTC ran 4k → 100k over this sample; a tree that learned
    `close > 60000` learned the calendar.
-4. Run `python -m tbot audit` — the point-in-time check must still pass.
+4. Run `python -m nullres audit` — the point-in-time check must still pass.
 5. Re-run and compare against the *previous* result, not against zero.
 
 ## Adding a strategy
 
-1. Implement `positions(self, ctx) -> pd.Series` in `tbot/strategies/`.
-2. Register it in `REGISTRY` in `tbot/strategies/__init__.py`.
+1. Implement `positions(self, ctx) -> pd.Series` in `nullres/strategies/`.
+2. Register it in `REGISTRY` in `nullres/strategies/__init__.py`.
 3. Mask to out-of-sample with `mask_to_oos(pos, ctx)` so it is judged on the
    same window as everything else.
 4. Add it to `strategies` in your config.
@@ -174,7 +174,7 @@ disagree, the backtest was wrong.
 
 ## Adding a data source
 
-Implement a loader returning the `OHLCV` contract from `tbot/data/__init__.py`:
+Implement a loader returning the `OHLCV` contract from `nullres/data/__init__.py`:
 a UTC-indexed frame with float `[open, high, low, close, volume, trades]`,
 strictly increasing, no duplicates. Then dispatch on it in `load_bars`. The
 rest of the pipeline is source-agnostic.

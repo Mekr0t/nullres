@@ -42,7 +42,7 @@ class Strategy(Protocol):
 def cached_proba(ctx: Context, key: str, compute):
     """Memoise walk-forward predictions across runs that share a context.
 
-    `tbot sweep` varies only sizing, which cannot change the model's output, so
+    `nullres sweep` varies only sizing, which cannot change the model's output, so
     refitting 25 times would be pure waste. The cache key includes the label,
     split and model config, so any change that WOULD alter the predictions
     misses the cache instead of silently returning stale ones.

@@ -6,9 +6,9 @@ index. Rule-based strategies exist to be beaten: if a gradient-boosted model on
 model has not learned anything worth the complexity, and you should say so.
 """
 
-from tbot.strategies.base import Context, Strategy
-from tbot.strategies.ml import MLDirection, MLMeta
-from tbot.strategies.rules import (
+from nullres.strategies.base import Context, Strategy
+from nullres.strategies.ml import MLDirection, MLMeta
+from nullres.strategies.rules import (
     BuyHold,
     DonchianBreakout,
     MeanReversionZ,

@@ -1,6 +1,6 @@
 """Feature engineering.
 
-Two hard rules, both enforced by `tbot.audit`:
+Two hard rules, both enforced by `nullres.audit`:
 
   1. POINT-IN-TIME. Every value at bar t uses only bars <= t. In practice this
      means: rolling windows only, never `.shift(-k)`, never an expanding stat
@@ -131,7 +131,7 @@ def build_features(df: pd.DataFrame, funding=None, metrics=None) -> pd.DataFrame
     f = f.replace([np.inf, -np.inf], np.nan)
 
     if funding is not None or metrics is not None:
-        from tbot.features.derivatives import build_derivative_features
+        from nullres.features.derivatives import build_derivative_features
 
         f = f.join(build_derivative_features(df, funding, metrics))
     return f

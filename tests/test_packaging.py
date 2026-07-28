@@ -1,9 +1,9 @@
 """Every module on disk must be importable — and must actually be committed.
 
 Written after `.gitignore` contained a bare `data/`, which git matches at any
-depth. That silently excluded `tbot/data/` from every commit. Locally
+depth. That silently excluded `nullres/data/` from every commit. Locally
 everything passed; CI failed with four `ModuleNotFoundError: No module named
-'tbot.data'` errors, which is a confusing way to learn about a .gitignore bug.
+'nullres.data'` errors, which is a confusing way to learn about a .gitignore bug.
 
 These tests turn that into one obvious failure with the cause in the message.
 """
@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-PACKAGE = REPO / "tbot"
+PACKAGE = REPO / "nullres"
 
 
 def _module_paths() -> list[Path]:

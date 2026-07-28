@@ -24,7 +24,7 @@ These four checks catch the overwhelming majority of leaks automatically:
                       accuracy must collapse to the base rate. If it does not,
                       information is reaching the model through a side channel.
 
-Run `tbot audit` before believing any result. It takes a minute and it has a
+Run `nullres audit` before believing any result. It takes a minute and it has a
 much better record than intuition.
 """
 
@@ -35,7 +35,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from tbot.features import build_features
+from nullres.features import build_features
 
 
 @dataclass
@@ -174,7 +174,7 @@ def check_shuffled_label(X: pd.DataFrame, y: pd.Series, t_end: np.ndarray,
     Any accuracy above the base rate here means the model is reaching the
     target through something other than the features it was given.
     """
-    from tbot.models.classifier import fit_predict_walk_forward
+    from nullres.models.classifier import fit_predict_walk_forward
 
     rng = np.random.default_rng(seed)
     shuffled = pd.Series(rng.permutation(y.to_numpy()), index=y.index)

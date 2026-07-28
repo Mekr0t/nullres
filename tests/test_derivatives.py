@@ -12,10 +12,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from tbot.audit import check_point_in_time
-from tbot.data.synthetic import synthetic_bars
-from tbot.features import build_features
-from tbot.features.derivatives import _asof, build_derivative_features
+from nullres.audit import check_point_in_time
+from nullres.data.synthetic import synthetic_bars
+from nullres.features import build_features
+from nullres.features.derivatives import _asof, build_derivative_features
 
 
 @pytest.fixture

@@ -27,9 +27,9 @@ from itertools import product
 import numpy as np
 import pandas as pd
 
-from tbot.backtest import backtest, by_period, summarize
-from tbot.pipeline import prepare, run_pipeline
-from tbot.strategies import build as build_strategy
+from nullres.backtest import backtest, by_period, summarize
+from nullres.pipeline import prepare, run_pipeline
+from nullres.strategies import build as build_strategy
 
 # Parameter grids centred on each rule's default. Deliberately coarse: the point
 # is to map the neighbourhood, not to find the best cell in it.

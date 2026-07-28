@@ -3,8 +3,8 @@
 import numpy as np
 import pytest
 
-from tbot.config import SplitConfig
-from tbot.validation import purged_walk_forward, remap_t_end, uniqueness_weights
+from nullres.config import SplitConfig
+from nullres.validation import purged_walk_forward, remap_t_end, uniqueness_weights
 
 
 def horizon_t_end(n, h):

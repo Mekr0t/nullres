@@ -18,7 +18,7 @@ source = "binance"
 
 [label]
 kind = "triple_barrier"   # triple_barrier | fwd_return | next_bar_sign
-# horizon and sizing.min_hold below are NOT free parameters. `tbot budget` says
+# horizon and sizing.min_hold below are NOT free parameters. `nullres budget` says
 # a 51%-accurate model at 12bps/side needs ~500 bars to clear costs at this
 # volatility, so the label has to ask a ~500-bar question. A 24-bar label with
 # a 500-bar hold is asking one question and acting on a different one.
@@ -52,6 +52,6 @@ long_exit = 0.50
 short_entry = 0.44
 short_exit = 0.50
 allow_short = true
-min_hold = 336            # the single most important cost lever; see `tbot budget`
+min_hold = 336            # the single most important cost lever; see `nullres budget`
 max_leverage = 1.0
 vol_target = 0.0          # set to e.g. 0.4 for 40% annualised vol targeting

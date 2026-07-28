@@ -1,6 +1,6 @@
 # BTC/USDT daily — the timeframe the cost arithmetic actually permits.
 #
-# The reasoning, from `tbot budget`: a fixed 24bps round trip is charged
+# The reasoning, from `nullres budget`: a fixed 24bps round trip is charged
 # regardless of timeframe, while the expected move grows as sqrt(bars). Hourly
 # bars move ~0.67%, so a round trip eats 36% of a typical move. Daily bars move
 # ~3.5%, so the same round trip eats ~7%. That is the whole argument for moving

@@ -7,11 +7,11 @@ injects a specific, realistic bug and asserts the audit fails.
 import numpy as np
 import pandas as pd
 
-from tbot.audit import check_label_leakage, check_point_in_time
-from tbot.config import LabelConfig
-from tbot.data.synthetic import synthetic_bars
-from tbot.features import build_features
-from tbot.labels import build_label
+from nullres.audit import check_label_leakage, check_point_in_time
+from nullres.config import LabelConfig
+from nullres.data.synthetic import synthetic_bars
+from nullres.features import build_features
+from nullres.labels import build_label
 
 
 def test_clean_features_pass_point_in_time():

@@ -4,8 +4,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from tbot.backtest.sizing import apply_min_hold, signal_to_position
-from tbot.config import SizingConfig
+from nullres.backtest.sizing import apply_min_hold, signal_to_position
+from nullres.config import SizingConfig
 
 
 def series(values):

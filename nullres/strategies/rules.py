@@ -10,8 +10,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from tbot.backtest.sizing import apply_rebalance_band
-from tbot.strategies.base import Context, mask_to_oos
+from nullres.backtest.sizing import apply_rebalance_band
+from nullres.strategies.base import Context, mask_to_oos
 
 
 class BuyHold:

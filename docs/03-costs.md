@@ -4,7 +4,7 @@ The arithmetic that decides whether a research direction is worth pursuing.
 Almost nobody runs it before spending a month on features.
 
 ```bash
-python -m tbot budget --config configs/btc_1h.toml
+python -m nullres budget --config configs/btc_1h.toml
 ```
 
 ---
@@ -27,7 +27,7 @@ required_accuracy(h)  = 0.5 * (1 + cost / E|move|(h))
 breakeven_hold(acc)   = (cost / (edge * sigma * sqrt(2/pi)))^2
 ```
 
-Both live in `tbot/costs.py`. `tests/test_costs.py` asserts they are exact
+Both live in `nullres/costs.py`. `tests/test_costs.py` asserts they are exact
 inverses of each other, because they are the same equation rearranged and it
 would be embarrassing if they disagreed.
 
@@ -111,7 +111,7 @@ on the 1h config took cost drag from 97.5% to 17.7% and total return from
 ### 2. Match the label horizon to the holding period
 
 A model trained to predict 24 bars ahead tells you nothing about whether to
-hold for 500. If `tbot budget` says you need 500-bar holds, the label has to
+hold for 500. If `nullres budget` says you need 500-bar holds, the label has to
 ask a 500-bar question.
 
 `pipeline.coherence_warnings` prints a warning when `label.horizon` and

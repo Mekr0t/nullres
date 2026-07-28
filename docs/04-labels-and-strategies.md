@@ -124,7 +124,7 @@ The ranked list, given what this repo has already ruled out:
    This is the highest-leverage change available.
 2. **Data the price series doesn't contain.** Funding rates, open interest,
    order-book imbalance, on-chain flows. Thirty-two technical indicators derived
-   from OHLCV are thirty-two views of the same four numbers, and `tbot features`
+   from OHLCV are thirty-two views of the same four numbers, and `nullres features`
    will show you most of them carry nothing out of sample — on the 4h config
    only `vol_72` clears 0.01 AUC, and a third of them score *negative*.
 3. **Cross-sectional instead of time-series.** "Which of these 50 assets will

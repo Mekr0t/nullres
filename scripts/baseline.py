@@ -1,6 +1,6 @@
 """
 KEPT AS A TEACHING ARTIFACT. This is the original single-file baseline that the
-`tbot` package grew out of. It is deliberately NOT maintained or imported by the
+`nullres` package grew out of. It is deliberately NOT maintained or imported by the
 package — it exists so the leak it demonstrates stays runnable and visible.
 
     python scripts/baseline.py --synthetic
@@ -8,7 +8,7 @@ package — it exists so the leak it demonstrates stays runnable and visible.
 Its closing lesson ("walk-forward validation did not catch the leak, only
 reading the label definition would have") is now enforced mechanically:
 
-    python -m tbot audit --config configs/btc_1h.toml
+    python -m nullres audit --config configs/btc_1h.toml
 
 See docs/02-leakage.md for what replaced each part of this file.
 

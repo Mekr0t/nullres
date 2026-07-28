@@ -11,8 +11,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from tbot.config import SplitConfig
-from tbot.crosssec import (
+from nullres.config import SplitConfig
+from nullres.crosssec import (
     UNIVERSE_2021_12,
     _cross_sectional_rank,
     _relative_label,
@@ -117,7 +117,7 @@ def test_time_folds_purge_the_label_horizon():
 
 
 def test_book_is_dollar_neutral_and_delisted_symbols_are_flat():
-    from tbot.crosssec import Panel
+    from nullres.crosssec import Panel
 
     symbols = ["A", "B", "C", "D", "E", "F"]
     times = pd.date_range("2022-01-01", periods=100, freq="4h")
@@ -147,7 +147,7 @@ def test_losing_a_leg_to_delisting_goes_flat_rather_than_directional():
     dies is worse than a directional one, because nothing in the reported
     metrics says so.
     """
-    from tbot.crosssec import _neutralise
+    from nullres.crosssec import _neutralise
 
     book = pd.Series({"A": 0.5, "B": 0.5, "C": -0.5, "D": -0.5})
     assert _neutralise(book).sum() == pytest.approx(0.0)
@@ -165,7 +165,7 @@ def test_losing_a_leg_to_delisting_goes_flat_rather_than_directional():
 
 def test_long_only_book_is_not_forced_flat():
     """Neutralisation must not break the allow_short=False case."""
-    from tbot.crosssec import _neutralise
+    from nullres.crosssec import _neutralise
 
     book = pd.Series({"A": 0.5, "B": 0.5, "C": 0.0})
     out = _neutralise(book, allow_short=False)
@@ -180,8 +180,8 @@ def test_benchmarks_are_restricted_to_the_out_of_sample_window():
     the entire bear market and reported -83%. The strategy looked good by
     comparison for reasons that had nothing to do with the strategy.
     """
-    from tbot.config import CostConfig
-    from tbot.crosssec import Panel, benchmarks
+    from nullres.config import CostConfig
+    from nullres.crosssec import Panel, benchmarks
 
     symbols = ["BTCUSDT", "A", "B"]
     times = pd.date_range("2022-01-01", periods=200, freq="4h")
@@ -203,8 +203,8 @@ def test_benchmarks_are_restricted_to_the_out_of_sample_window():
 
 def test_static_reference_benchmark_is_dollar_neutral():
     """long BTC / short alts must be neutral, or it is not comparable."""
-    from tbot.config import CostConfig
-    from tbot.crosssec import Panel, benchmarks
+    from nullres.config import CostConfig
+    from nullres.crosssec import Panel, benchmarks
 
     symbols = ["BTCUSDT", "A", "B", "C"]
     times = pd.date_range("2022-01-01", periods=50, freq="4h")
@@ -227,7 +227,7 @@ def test_liquidity_screen_cannot_see_the_future():
     like ordinary data hygiene and is actually a survivorship filter that picks
     the assets that went on to matter.
     """
-    from tbot.data.universe import liquidity_screen
+    from nullres.data.universe import liquidity_screen
 
     times = pd.date_range("2022-01-01", periods=800, freq="4h")
     vol = pd.DataFrame({
@@ -247,7 +247,7 @@ def test_liquidity_screen_cannot_see_the_future():
 
 def test_liquidity_screen_ignores_newly_listed_coins():
     """A three-day-old coin with launch hype must not outrank real liquidity."""
-    from tbot.data.universe import liquidity_screen
+    from nullres.data.universe import liquidity_screen
 
     times = pd.date_range("2022-01-01", periods=400, freq="4h")
     vol = pd.DataFrame({
@@ -262,7 +262,7 @@ def test_liquidity_screen_ignores_newly_listed_coins():
 
 def test_screened_out_symbols_do_not_affect_ranks():
     """Ranks must be computed within the tradable set, not the whole archive."""
-    from tbot.crosssec import _cross_sectional_rank
+    from nullres.crosssec import _cross_sectional_rank
 
     idx = pd.date_range("2022-01-01", periods=2, freq="4h", name="ts")
     values = {"A": 1.0, "B": 3.0, "C": 2.0, "JUNK": 99.0}
@@ -282,8 +282,8 @@ def test_screened_out_symbols_do_not_affect_ranks():
 
 
 def test_funding_is_charged_on_held_positions():
-    from tbot.config import CostConfig
-    from tbot.crosssec import Panel
+    from nullres.config import CostConfig
+    from nullres.crosssec import Panel
 
     symbols = ["A", "B"]
     times = pd.date_range("2022-01-01", periods=50, freq="4h")

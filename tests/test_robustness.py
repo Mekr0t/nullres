@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from tbot.robustness import _valid, verdict
+from nullres.robustness import _valid, verdict
 
 
 def grid_df(sharpes):
@@ -60,7 +60,7 @@ def smooth_grid(values_2d):
 
 
 def test_sign_flip_rate_is_zero_on_a_coherent_region():
-    from tbot.robustness import sign_flip_rate
+    from nullres.robustness import sign_flip_rate
 
     grid = smooth_grid([[0.3, 0.4, 0.5], [0.4, 0.6, 0.5], [0.2, 0.3, 0.4]])
     assert sign_flip_rate(grid, ["a", "b"]) == 0.0
@@ -68,7 +68,7 @@ def test_sign_flip_rate_is_zero_on_a_coherent_region():
 
 def test_sign_flip_rate_is_high_on_a_checkerboard():
     """The case that fooled the old 'count positive cells' criterion."""
-    from tbot.robustness import sign_flip_rate
+    from nullres.robustness import sign_flip_rate
 
     grid = smooth_grid([[0.8, -0.2, 0.9], [-0.7, 0.6, -0.3], [0.5, -0.4, 0.7]])
     assert sign_flip_rate(grid, ["a", "b"]) == 1.0
@@ -76,7 +76,7 @@ def test_sign_flip_rate_is_high_on_a_checkerboard():
 
 def test_checkerboard_is_killed_even_when_mostly_positive():
     """60% of cells positive, median positive — but the sign is noise."""
-    from tbot.robustness import sign_flip_rate
+    from nullres.robustness import sign_flip_rate
 
     grid = smooth_grid([[0.8, -0.2, 0.9], [0.7, 0.6, -0.3], [0.5, -0.4, 0.7]])
     flips = sign_flip_rate(grid, ["a", "b"])
@@ -99,7 +99,7 @@ def test_noise_baseline_scales_with_the_positive_fraction():
     matter how the signs are arranged, so a flat 30% cutoff would pass it
     unconditionally. The random-placement baseline adapts.
     """
-    from tbot.robustness import _is_noise_field
+    from nullres.robustness import _is_noise_field
 
     # 50/50 split scattered at random -> expected 0.50
     assert _is_noise_field(0.5, 0.50)
@@ -120,7 +120,7 @@ def test_the_real_ml_grids_are_indistinguishable_from_noise():
     ml_direction: 75% positive, 39% flips vs 37.5% expected
     ml_meta:      60% positive, 48% flips vs 48.0% expected
     """
-    from tbot.robustness import _is_noise_field
+    from nullres.robustness import _is_noise_field
 
     assert _is_noise_field(0.75, 0.39)
     assert _is_noise_field(0.60, 0.48)
@@ -133,9 +133,9 @@ def test_partial_periods_are_excluded_from_stability():
     which then counted as a full observation in the stability verdict.
     """
     import numpy as np
-    from tbot.backtest.engine import backtest
-    from tbot.backtest.metrics import by_period
-    from tbot.config import CostConfig
+    from nullres.backtest.engine import backtest
+    from nullres.backtest.metrics import by_period
+    from nullres.config import CostConfig
 
     idx = pd.date_range("2021-12-01", "2023-12-31", freq="4h")
     opens = 100 * np.exp(np.cumsum(np.random.default_rng(0).normal(0, 0.01, len(idx))))
@@ -232,8 +232,8 @@ def test_invalid_parameter_combinations_are_rejected(name, combo, expected):
 
 def test_strategy_params_flow_from_config():
     """A rule's parameters must be reproducible from the config alone."""
-    from tbot.config import load_config
-    from tbot.strategies import build
+    from nullres.config import load_config
+    from nullres.strategies import build
 
     cfg = load_config("configs/btc_4h.toml")
     assert cfg.params["donchian"] == {"entry": 96, "exit": 48}
@@ -242,7 +242,7 @@ def test_strategy_params_flow_from_config():
 
 
 def test_bad_strategy_params_are_rejected_clearly():
-    from tbot.strategies import build
+    from nullres.strategies import build
 
     with pytest.raises(ValueError, match="bad params"):
         build("donchian", {"nonexistent_param": 1})

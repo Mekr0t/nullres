@@ -33,9 +33,9 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-from tbot.data import load_auxiliary
-from tbot.data.binance import load_binance
-from tbot.features import build_features
+from nullres.data import load_auxiliary
+from nullres.data.binance import load_binance
+from nullres.features import build_features
 
 # The universe as it looked in December 2021, NOT today. LUNAUSDT is in it
 # because it was, and because a survivorship-honest test needs the corpses.
@@ -102,7 +102,7 @@ def load_panel(cfg, symbols: list[str] | None = None, verbose: bool = True,
 
     screen = None
     if top_n:
-        from tbot.data.universe import liquidity_screen
+        from nullres.data.universe import liquidity_screen
 
         dollar_volume = pd.DataFrame(
             {s: b["volume"] * b["close"] for s, b in bars_by_symbol.items()}
@@ -133,7 +133,7 @@ def load_panel(cfg, symbols: list[str] | None = None, verbose: bool = True,
         if fund is not None and len(fund):
             # Funding settles every 8h; a bar of `interval_hours` carries that
             # fraction of one settlement. A long pays when the rate is positive.
-            from tbot.features.derivatives import _asof
+            from nullres.features.derivatives import _asof
 
             rate = _asof(bars, fund, ["funding_rate"])["funding_rate"]
             funding_cols[symbol] = rate * (interval_hours / 8.0)
@@ -306,7 +306,7 @@ def time_folds(times: pd.DatetimeIndex, cfg_split, horizon: int):
 
 def fit_predict_panel(panel: Panel, cfg, verbose: bool = True):
     """Walk-forward P(outperforms) for every (ts, symbol) in a test fold."""
-    from tbot.models.classifier import make_model
+    from nullres.models.classifier import make_model
     from sklearn.metrics import roc_auc_score
 
     X, y = panel.features, panel.y
@@ -412,7 +412,7 @@ def _neutralise(weights: pd.Series, allow_short: bool = True) -> pd.Series:
 def backtest_panel(positions: pd.DataFrame, panel: Panel, cost_cfg,
                    charge_funding: bool = True):
     """Per-bar net log return of the book, with per-symbol costs and funding."""
-    from tbot.backtest.engine import BacktestResult
+    from nullres.backtest.engine import BacktestResult
 
     ret = panel.ret_next.reindex(positions.index)[positions.columns].fillna(0.0)
     gross = (positions * ret).sum(axis=1)

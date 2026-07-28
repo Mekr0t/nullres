@@ -5,9 +5,9 @@ with float columns [open, high, low, close, volume, trades], strictly increasing
 index, no duplicates. `load_bars` is the only entry point callers should need.
 """
 
-from tbot.data.binance import fetch_month, load_binance
-from tbot.data.futures import load_funding, load_metrics
-from tbot.data.synthetic import synthetic_bars, synthetic_funding, synthetic_metrics
+from nullres.data.binance import fetch_month, load_binance
+from nullres.data.futures import load_funding, load_metrics
+from nullres.data.synthetic import synthetic_bars, synthetic_funding, synthetic_metrics
 
 OHLCV = ["open", "high", "low", "close", "volume", "trades"]
 

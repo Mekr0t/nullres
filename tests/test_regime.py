@@ -3,7 +3,7 @@
 These assert properties of real BTC data, so they skip when the parquet cache
 is absent (CI does not commit `data/`). Reproduce the cache with:
 
-    python -m tbot fetch --config configs/btc_4h.toml
+    python -m nullres fetch --config configs/btc_4h.toml
 """
 
 from __future__ import annotations
@@ -13,19 +13,19 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from tbot.config import load_config
+from nullres.config import load_config
 
 pytestmark = pytest.mark.slow
 
 CACHED = Path("data").glob("BTCUSDT-4h-*.parquet")
 needs_data = pytest.mark.skipif(
-    not any(CACHED), reason="BTCUSDT 4h cache absent; run `tbot fetch`"
+    not any(CACHED), reason="BTCUSDT 4h cache absent; run `nullres fetch`"
 )
 
 
 @pytest.fixture(scope="module")
 def btc():
-    from tbot.data import load_bars
+    from nullres.data import load_bars
 
     cfg = load_config("configs/btc_4h.toml")
     bars = load_bars(cfg.data)

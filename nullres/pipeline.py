@@ -11,12 +11,12 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from tbot.backtest import backtest, summarize
-from tbot.data import load_auxiliary, load_bars
-from tbot.features import build_features
-from tbot.labels import build_label
-from tbot.strategies import Context, build as build_strategy
-from tbot.validation import describe_folds, purged_walk_forward, remap_t_end
+from nullres.backtest import backtest, summarize
+from nullres.data import load_auxiliary, load_bars
+from nullres.features import build_features
+from nullres.labels import build_label
+from nullres.strategies import Context, build as build_strategy
+from nullres.validation import describe_folds, purged_walk_forward, remap_t_end
 
 
 def prepare(cfg, verbose: bool = True) -> Context:
@@ -80,7 +80,7 @@ def ablate(ctx: Context, group: str) -> Context:
     splits and the benchmark are byte-identical and the only variable is the
     feature set.
     """
-    from tbot.features import DERIVATIVE_DOC
+    from nullres.features import DERIVATIVE_DOC
 
     groups = {"derivatives": set(DERIVATIVE_DOC)}
     if group not in groups:
@@ -100,7 +100,7 @@ def coherence_warnings(cfg, bars: pd.DataFrame) -> list[str]:
     These are not style notes. Each one describes a setup where the backtest
     will produce a number that means nothing.
     """
-    from tbot.costs import breakeven_hold, required_accuracy
+    from nullres.costs import breakeven_hold, required_accuracy
 
     out = []
     horizon = cfg.label.horizon
@@ -123,7 +123,7 @@ def coherence_warnings(cfg, bars: pd.DataFrame) -> list[str]:
         out.append(
             f"at min_hold={hold} this strategy needs {target} just to break even. "
             f"A realistic 52% model would need to hold ~{be:,.0f} bars. "
-            f"Run `tbot budget` for the full table."
+            f"Run `nullres budget` for the full table."
         )
     return out
 
@@ -132,7 +132,7 @@ def run_pipeline(cfg, verbose: bool = True, ctx: Context | None = None) -> dict[
     """Run every configured strategy and return {name: metrics}.
 
     A caller may pass a prepared `ctx` to avoid recomputing features when only
-    sizing or cost parameters change (see `tbot sweep`). The context's cfg is
+    sizing or cost parameters change (see `nullres sweep`). The context's cfg is
     repointed at `cfg` so those overrides actually take effect — strategies read
     their parameters from ctx.cfg, not from the closure.
     """

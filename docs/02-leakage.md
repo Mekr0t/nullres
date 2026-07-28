@@ -3,7 +3,7 @@
 Every leak below has been shipped to production by someone competent. They are
 ordered roughly by how often they occur.
 
-Run `python -m tbot audit --config <cfg>` to check the first four mechanically.
+Run `python -m nullres audit --config <cfg>` to check the first four mechanically.
 
 ---
 
@@ -35,7 +35,7 @@ scaler.fit(X)                                      # before splitting
 ```
 
 Small leak, real leak. The 2024 mean tells the 2021 model where prices were
-headed. In `tbot`, scaling for linear models lives inside a `sklearn.Pipeline`
+headed. In `nullres`, scaling for linear models lives inside a `sklearn.Pipeline`
 so it is refitted per fold — see `models/classifier.py`.
 
 **Detection:** point-in-time check. Truncating the history changes the mean,
@@ -120,14 +120,14 @@ out-of-sample, no matter how correct your splits are. The test set became your
 training set the second you used it to choose.
 
 ```bash
-python -m tbot sweep --config configs/btc_1h.toml
+python -m nullres sweep --config configs/btc_1h.toml
 ```
 
 prints the whole surface rather than the maximum, and tells you what to look
 for: a real edge degrades *smoothly* as parameters move. A lone positive cell
 surrounded by negatives is a fitting artefact.
 
-`tbot robust` makes that judgement quantitative. It measures how often the sign
+`nullres robust` makes that judgement quantitative. It measures how often the sign
 changes between adjacent grid cells and compares it against `2p(1-p)` — the
 rate you would get by scattering the same number of positive cells at random.
 Matching the baseline means the arrangement carries no information, however

@@ -1,5 +1,8 @@
 # 05 — The graveyard
 
+*Why each hypothesis died. For the measurements themselves, see
+[RESEARCH.md](../RESEARCH.md).*
+
 Every hypothesis this repo has killed, why it died, and what it cost to find
 out. Kept because the most expensive mistake in research is re-running a dead
 end you already disproved and forgot about.
@@ -17,7 +20,7 @@ Out-of-sample accuracy 54.25%, genuinely ~2.4σ above coin-flip, and it still
 lost 100%. It changed position 15,527 times in 47,502 bars; at 12bps that is
 18.6 in log cost. The model was never the problem.
 
-**Lesson:** run `tbot budget` first. At one-bar holds this needed 72.4%
+**Lesson:** run `nullres budget` first. At one-bar holds this needed 72.4%
 accuracy to break even. Nothing was ever going to close that gap.
 
 ---
@@ -158,7 +161,7 @@ and benchmark, only the feature set differing:
   paired t-test: t = 0.92, p = 0.412
 ```
 
-Reproduce: `python -m tbot ablate --config configs/btc_4h_deriv.toml`
+Reproduce: `python -m nullres ablate --config configs/btc_4h_deriv.toml`
 
 Three observations, in descending order of confidence:
 
@@ -185,7 +188,7 @@ one percentage point and are computed over 6,660 bars; the Sharpes differ by
 ### The battery verdict: both strategies KILLED
 
 ```
-python -m tbot robust --config configs/btc_4h_deriv.toml \
+python -m nullres robust --config configs/btc_4h_deriv.toml \
     --strategy ml_direction --transfer-start 2021-12
 ```
 
@@ -223,7 +226,7 @@ one percentage point of extra discrimination, and one point of AUC does not
 survive contact with 24bps round trips and a 3-week holding period.
 
 That is the same wall everything else in this file hit. It is not a modelling
-failure — it is `tbot budget` again, from a different direction.
+failure — it is `nullres budget` again, from a different direction.
 
 ### What this does not rule out
 
@@ -243,7 +246,7 @@ dollar neutral. Universe frozen as of 2021-12 including LUNAUSDT and MATICUSDT,
 both later delisted. USD-M perps (you cannot short spot), funding charged.
 
 ```bash
-python -m tbot xsec --config configs/xsec_4h.toml
+python -m nullres xsec --config configs/xsec_4h.toml
 ```
 
 **The skill is real.** Mean AUC **0.5443**, the highest in this project, with
@@ -314,7 +317,7 @@ trading in 2021-12 (**136** symbols, including 9 that later delisted), screened
 to the top 40 by *trailing* dollar volume.
 
 ```bash
-python -m tbot xsec --config configs/xsec_4h.toml --universe 2021-12 --top-n 40 \
+python -m nullres xsec --config configs/xsec_4h.toml --universe 2021-12 --top-n 40 \
     --set data.metrics=false
 ```
 
@@ -367,7 +370,7 @@ a -0.5 weight is -137% of capital, and the engine models no margin at all.
 **Lesson:** the strongest signal in the project, verified clean from four
 directions, and it still loses to arithmetic. Cost sensitivity is not a
 footnote to a backtest — for anything trading thin instruments it *is* the
-result, which is why `tbot xsec` now prints the sweep by default.
+result, which is why `nullres xsec` now prints the sweep by default.
 
 *Two suspicions I raised during this investigation were wrong and are recorded
 so nobody re-chases them: the extreme bars are genuine market events (LUNA's
@@ -387,5 +390,5 @@ already yields NaN across holes.*
   through diversification rather than concentration, which is the specific
   reason the k=2 book carried a -78.6% drawdown.
 - **Lower-cost execution.** Nearly every result here dies on turnover. Maker
-  rebates or a tighter-spread venue move the arithmetic in `tbot budget` more
+  rebates or a tighter-spread venue move the arithmetic in `nullres budget` more
   than any modelling change has.

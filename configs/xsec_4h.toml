@@ -16,7 +16,7 @@
 #   today's liquid symbols would be a test of "assets that survived" and would
 #   produce a beautiful, meaningless result.
 #
-#     python -m tbot xsec --config configs/xsec_4h.toml
+#     python -m nullres xsec --config configs/xsec_4h.toml
 
 name = "xsec_4h"
 out_dir = "reports"

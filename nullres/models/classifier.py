@@ -14,7 +14,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-from tbot.validation import purged_walk_forward, uniqueness_weights
+from nullres.validation import purged_walk_forward, uniqueness_weights
 
 
 def make_model(cfg):

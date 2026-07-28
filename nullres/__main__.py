@@ -1,6 +1,6 @@
 import sys
 
-from tbot.cli import main
+from nullres.cli import main
 
 if __name__ == "__main__":
     sys.exit(main())

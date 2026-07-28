@@ -74,7 +74,7 @@ The model was never the problem. See [03 — Costs](03-costs.md).
 A backtest is a measuring instrument. Calibrate it against known answers:
 
 ```bash
-python -m tbot run --config configs/null.toml
+python -m nullres run --config configs/null.toml
 ```
 
 That runs the entire pipeline on a geometric random walk, where there is no

@@ -20,9 +20,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from tbot.config import load_config
-from tbot.data.synthetic import synthetic_bars
-from tbot.pipeline import run_pipeline
+from nullres.config import load_config
+from nullres.data.synthetic import synthetic_bars
+from nullres.pipeline import run_pipeline
 
 pytestmark = pytest.mark.slow
 

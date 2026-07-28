@@ -71,6 +71,6 @@ long_exit = 0.50
 short_entry = 0.44
 short_exit = 0.50
 allow_short = true
-min_hold = 84             # see `tbot budget --config configs/btc_4h.toml`
+min_hold = 84             # see `nullres budget --config configs/btc_4h.toml`
 max_leverage = 1.0
 vol_target = 0.0

@@ -4,9 +4,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from tbot.config import LabelConfig
-from tbot.data.synthetic import synthetic_bars
-from tbot.labels import build_label
+from nullres.config import LabelConfig
+from nullres.data.synthetic import synthetic_bars
+from nullres.labels import build_label
 
 
 def ramp_bars(n=500, step=0.002):

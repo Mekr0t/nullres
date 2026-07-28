@@ -40,7 +40,7 @@ class DataConfig:
         if self.interval not in BARS_PER_YEAR:
             raise ValueError(
                 f"unknown interval {self.interval!r}; "
-                f"add it to BARS_PER_YEAR in tbot/config.py"
+                f"add it to BARS_PER_YEAR in nullres/config.py"
             )
         return BARS_PER_YEAR[self.interval]
 

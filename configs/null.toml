@@ -5,7 +5,7 @@
 # bug is in the harness, not the market, and every other result in this repo is
 # void until you find it.
 #
-#     python -m tbot run --config configs/null.toml
+#     python -m nullres run --config configs/null.toml
 
 name = "null"
 strategies = ["sma_cross", "donchian", "mean_reversion", "ml_direction", "ml_meta"]

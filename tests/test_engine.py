@@ -4,8 +4,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from tbot.backtest.engine import backtest
-from tbot.config import CostConfig
+from nullres.backtest.engine import backtest
+from nullres.config import CostConfig
 
 
 def bars_from_opens(opens):

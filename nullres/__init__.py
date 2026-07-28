@@ -1,4 +1,4 @@
-"""tbot — an honest research harness for systematic trading strategies.
+"""nullres — an honest research harness for systematic trading strategies.
 
 The design rule that governs every module in this package:
 
@@ -7,7 +7,7 @@ The design rule that governs every module in this package:
     Every position change pays fees and slippage.
 
 Anything that violates those three lines produces a backtest that cannot be
-traded. `tbot.audit` exists to catch violations mechanically rather than by
+traded. `nullres.audit` exists to catch violations mechanically rather than by
 hoping someone re-reads the label definition.
 """
 

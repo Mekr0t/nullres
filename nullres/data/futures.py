@@ -2,7 +2,7 @@
 
 This is the first information in the repo that is NOT a transform of OHLCV.
 Everything in `features/technical.py` is thirty-two views of four numbers;
-`tbot features` showed almost none of them carry out of sample. Funding and
+`nullres features` showed almost none of them carry out of sample. Funding and
 open interest measure something the price series cannot express: how much
 leverage is deployed, and on which side.
 

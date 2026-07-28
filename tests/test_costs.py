@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from tbot.costs import (
+from nullres.costs import (
     breakeven_hold,
     expected_abs_move,
     required_accuracy,

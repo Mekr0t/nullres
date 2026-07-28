@@ -10,7 +10,7 @@
 # drops eight months of rows to a NaN mask is a config that lies about its
 # sample, so the range is aligned to the binding constraint.
 #
-#     python -m tbot fetch --config configs/btc_4h_deriv.toml
+#     python -m nullres fetch --config configs/btc_4h_deriv.toml
 #
 # The metrics archive is published one file PER DAY, so the first fetch makes
 # ~1,900 requests. They run concurrently and cache one parquet per month; a
@@ -32,7 +32,7 @@ metrics = true
 
 [label]
 kind = "triple_barrier"
-horizon = 126             # ~3 weeks; see `tbot budget`
+horizon = 126             # ~3 weeks; see `nullres budget`
 vol_window = 60
 upper = 1.5
 lower = 1.5
