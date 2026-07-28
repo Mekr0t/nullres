@@ -81,23 +81,33 @@ python -m tbot run -c configs/btc_1h.toml --set sizing.min_hold=168
 ## Current state of the research
 
 Every hypothesis tried so far is recorded in [docs/05-graveyard.md](docs/05-graveyard.md).
-Five are dead: next-bar direction, direction at any horizon, slower timeframes,
-donchian breakout, and volatility targeting.
+**No tradable edge has been found.** Six lines of attack are dead: next-bar
+direction, direction at any horizon, slower timeframes, donchian breakout,
+volatility targeting, and machine learning on derivatives data.
 
-One is not. **Funding rates and open interest** — the only information here that
-is not a transform of OHLCV — produce a small, consistent, not-yet-significant
-improvement in a matched-sample ablation:
+The last one is worth stating precisely, because the data and the strategy gave
+opposite answers. **Funding rates and open interest do carry information** —
+a matched-sample ablation raises mean AUC from 0.5199 to 0.5317, and the
+long/short account ratio is the most important feature in the model, ahead of
+every price-derived one:
 
 ```
   with derivatives      mean AUC 0.5317   std 0.0126   folds above 0.5: 5/5
   without derivatives   mean AUC 0.5199   std 0.0257   folds above 0.5: 4/5
-  paired t-test over 5 folds: t = 0.92, p = 0.412
 ```
 
-The long/short account ratio is the most important single feature in the model,
-ahead of every price-derived one. Funding rate itself carries nothing. It has
-not yet been through `tbot robust`, which is what killed the previous two
-candidates, so it is a lead rather than a finding.
+**And the strategies built on it were killed anyway.** Both `ml_direction` and
+`ml_meta` failed the robustness battery, and the clearest evidence is that they
+disagree about which assets they work on:
+
+```
+                 ETH     BNB     SOL     XRP      (Sharpe vs buy & hold)
+  ml_direction  +0.02   -0.71   +0.81   -1.62
+  ml_meta       -1.13   -0.13   +0.59   +0.52
+```
+
+One point of AUC is real. It does not survive 24bps round trips. That is the
+same wall every other entry in the graveyard hit, reached from a new direction.
 
 ## The three rules everything else follows from
 

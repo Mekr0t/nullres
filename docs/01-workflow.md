@@ -112,6 +112,18 @@ Three attempts to falsify, all of which a real effect should survive:
 - **Parameter neighbourhood** — do nearby parameter values also work? A real
   effect degrades smoothly; if one cell in a grid is positive and its
   neighbours are not, you found the cell that fit, not an edge.
+
+  Counting positive cells cannot see this, which is why the check compares the
+  observed **sign-flip rate between adjacent cells** against what random
+  placement would give. If a fraction `p` of cells are positive and scattered
+  at random, neighbours differ in sign with probability `2p(1-p)`. A real
+  effect clusters and flips far less often. A fixed threshold would be wrong in
+  both directions: a grid that is 95% positive can never flip more than ~10% of
+  the time regardless of arrangement.
+
+  This is what killed the derivatives ML strategies. `ml_direction` scored 75%
+  of cells positive with a median Sharpe of 0.28 — and flipped sign across 39%
+  of adjacent cells against a 37.5% random baseline. Identical to chance.
 - **Sub-period stability** — profitable *relative to buy & hold* in most years,
   or carried by one? Note the benchmark clause. A long-only filter over a bull
   market is profitable in most years by construction, which is why the absolute

@@ -212,8 +212,8 @@ def cmd_budget(cfg, args) -> int:
 def cmd_robust(cfg, args) -> int:
     """Try three times to kill a strategy that looked good once."""
     from tbot.robustness import (
-        DEFAULT_GRIDS, cross_symbol, parameter_neighbourhood,
-        period_stability, pivot_grid, verdict,
+        cross_symbol, grid_for, parameter_neighbourhood,
+        period_stability, pivot_grid, sign_flip_rate, verdict,
     )
 
     strategy = args.strategy
@@ -227,8 +227,14 @@ def cmd_robust(cfg, args) -> int:
     print("\n--- 1/3 parameter neighbourhood " + "-" * 44)
     print("Does the result survive a change to its own parameters?\n")
     grid = parameter_neighbourhood(cfg, strategy, ctx=ctx)
-    keys = [k for k in DEFAULT_GRIDS[strategy]]
-    print(pivot_grid(grid, keys))
+    grid_def, kind = grid_for(strategy)
+    if kind == "sizing":
+        print("(varying [sizing]; the model fit is identical across the grid)\n")
+    print(pivot_grid(grid, list(grid_def)))
+    flips = sign_flip_rate(grid, list(grid_def))
+    print(f"\n  {(grid['sharpe'] > 0).mean():.0%} positive, "
+          f"median {grid['sharpe'].median():.2f}, "
+          f"sign flips across {flips:.0%} of adjacent cells")
 
     print("\n--- 2/3 sub-period stability " + "-" * 47)
     print("Is it profitable every year, or did one year carry it?\n")
@@ -242,7 +248,10 @@ def cmd_robust(cfg, args) -> int:
 
     print("\n--- 3/3 cross-symbol transfer " + "-" * 46)
     print(f"Does it work on anything other than {cfg.data.symbol}?\n")
-    transfer = cross_symbol(cfg, strategy, symbols)
+    if args.transfer_start:
+        print(f"  window forced to {args.transfer_start} onward for every symbol, "
+              f"including {cfg.data.symbol}, so this compares assets and not eras\n")
+    transfer = cross_symbol(cfg, strategy, symbols, start=args.transfer_start)
     print(f"  {'symbol':<12}{'total':>10}{'sharpe':>9}{'vs hold':>9}{'trades':>8}  note")
     for _, row in transfer.iterrows():
         if pd.isna(row["sharpe"]):
@@ -252,7 +261,8 @@ def cmd_robust(cfg, args) -> int:
                   f"{row['sharpe']:>9.2f}{row['vs_hold']:>9.2f}{row['n_trades']:>8,}")
 
     bench = float(stability["sharpe_hold"].mean()) if not stability.empty else None
-    ok, notes = verdict(grid, stability, transfer, benchmark_sharpe=bench)
+    ok, notes = verdict(grid, stability, transfer, benchmark_sharpe=bench,
+                        flip_rate=flips)
     _banner("VERDICT: " + ("SURVIVED" if ok else "KILLED"))
     for note in notes:
         print(f"  {note}")
@@ -372,6 +382,9 @@ def main(argv: list[str] | None = None) -> int:
                              "after row alignment, for a matched-sample A/B")
     parser.add_argument("--symbols", default="ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT",
                         help="robust: symbols for the cross-symbol transfer test")
+    parser.add_argument("--transfer-start", default=None, metavar="YYYY-MM",
+                        help="robust: force a common start date across symbols "
+                             "(auxiliary archives begin at different dates)")
     parser.add_argument("--set", action="append", default=[], metavar="a.b=v",
                         help="override a config value, e.g. --set sizing.min_hold=12")
     args = parser.parse_args(argv)

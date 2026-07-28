@@ -127,6 +127,12 @@ prints the whole surface rather than the maximum, and tells you what to look
 for: a real edge degrades *smoothly* as parameters move. A lone positive cell
 surrounded by negatives is a fitting artefact.
 
+`tbot robust` makes that judgement quantitative. It measures how often the sign
+changes between adjacent grid cells and compares it against `2p(1-p)` — the
+rate you would get by scattering the same number of positive cells at random.
+Matching the baseline means the arrangement carries no information, however
+good the best cell looks.
+
 If you must select, `metrics.deflated_sharpe` subtracts the Sharpe you would
 expect to reach by luck given `n_trials`. Searching 100 variants on pure noise
 yields a best-of-100 Sharpe around 0.6 for free.

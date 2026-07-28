@@ -100,7 +100,8 @@ def deflated_sharpe(sharpe: float, n_obs: int, bars_per_year: int,
     return float(sharpe - e_max * np.sqrt(bars_per_year / n_obs))
 
 
-def by_period(result, bars_per_year: int, mask=None, freq: str = "YE") -> pd.DataFrame:
+def by_period(result, bars_per_year: int, mask=None, freq: str = "YE",
+              min_coverage: float = 0.35) -> pd.DataFrame:
     """Break performance down by calendar period.
 
     A strategy with a Sharpe of 0.5 built from one spectacular year and four
@@ -112,15 +113,24 @@ def by_period(result, bars_per_year: int, mask=None, freq: str = "YE") -> pd.Dat
         mask: restrict to these bars (pass the out-of-sample mask; bars outside
             it contribute structural zeros that deflate the volatility estimate
             and inflate Sharpe).
+        min_coverage: drop periods covering less than this fraction of a full
+            one. An out-of-sample window starting in December leaves a "2021"
+            of one month, and annualising it produced a buy & hold Sharpe of
+            -4.68 off two trades — a number with no meaning that nonetheless
+            counted as a full observation in the stability verdict.
     """
     r = result.returns
     turnover = result.turnover
     if mask is not None:
         r, turnover = r[mask], turnover[mask]
 
+    full_period_bars = bars_per_year if freq.startswith("Y") else None
+
     rows = []
     for period, chunk in r.groupby(pd.Grouper(freq=freq)):
         if len(chunk) < 2 or chunk.std() == 0:
+            continue
+        if full_period_bars and len(chunk) < min_coverage * full_period_bars:
             continue
         trades = int((turnover.loc[chunk.index] > 1e-12).sum())
         rows.append({

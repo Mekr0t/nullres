@@ -136,10 +136,10 @@ mistakes it for a finding.
 
 ---
 
-## Funding rates and open interest — NOT dead
+## Funding rates and open interest
 
-**Status:** the first hypothesis here that survived its first contact with
-evidence. That is not the same as alive.
+**Status:** the DATA carries information. The STRATEGIES built on it are dead.
+Those are two different claims and only the second was tested by the battery.
 
 The one direction that brings information the price series does not contain.
 Binance publishes 8-hourly funding rates (from 2020-01) and open-interest /
@@ -182,14 +182,56 @@ curve is decided by which handful of positions landed. The AUCs above differ by
 one percentage point and are computed over 6,660 bars; the Sharpes differ by
 1.11 and are computed over 80 trades. Believe the first pair.
 
-**What it has NOT done.** It has not been through `tbot robust`. No parameter
-neighbourhood, no sub-period stability against buy & hold, no cross-symbol
-transfer — and that last test is what killed donchian and vol targeting, both
-of which looked at least this good beforehand. Metrics archives for ETH, SOL,
-BNB and XRP begin later than BTC's, so the transfer test needs its date range
-handled before it will mean anything.
+### The battery verdict: both strategies KILLED
 
-Until it clears that battery it is a lead, not a finding.
+```
+python -m tbot robust --config configs/btc_4h_deriv.toml \
+    --strategy ml_direction --transfer-start 2021-12
+```
+
+| test | ml_direction | ml_meta |
+|---|---|---|
+| neighbourhood | **FAIL** — 39% sign flips vs 38% expected | **FAIL** — 48% vs 48% expected |
+| stability | ok — beat hold in 2 of 3 years | **FAIL** — 0 of 3 years |
+| transfer | **FAIL** — beat hold on 2 of 4 | **FAIL** — 2 of 4 |
+
+**The single most damning number is not in that table.** It is the spread of
+the transfer results, and the fact that the two strategies disagree about which
+assets work:
+
+```
+                 ETH     BNB     SOL     XRP      (Sharpe vs buy & hold)
+  ml_direction  +0.02   -0.71   +0.81   -1.62
+  ml_meta       -1.13   -0.13   +0.59   +0.52
+```
+
+`ml_direction` loves SOL and is destroyed by XRP. `ml_meta` is destroyed by ETH
+and likes XRP. If positioning data carried a real, tradable signal about crypto
+market structure, two models reading the same features would not disagree about
+which assets it works on. A 2.4-Sharpe spread across four correlated majors is
+a random draw per symbol, not an edge with exceptions.
+
+### Reconciling this with the ablation
+
+The ablation result above still stands: adding derivatives raises mean AUC from
+0.5199 to 0.5317 and `ls_accounts` is the model's most important feature. That
+is a statement about **information**, measured over 6,660 bars.
+
+The battery is a statement about **tradability**, measured over ~25 trades per
+year per symbol. Both can be true, and here both are: the data contains perhaps
+one percentage point of extra discrimination, and one point of AUC does not
+survive contact with 24bps round trips and a 3-week holding period.
+
+That is the same wall everything else in this file hit. It is not a modelling
+failure — it is `tbot budget` again, from a different direction.
+
+### What this does not rule out
+
+The transfer test judged **strategies**, not the data. Untested: a
+cross-sectional formulation (rank the five symbols by positioning extremity
+rather than trade each independently), which is the natural use of a signal
+that says "the crowd is offside on X relative to Y" and does not require any
+single asset's signal to clear costs alone.
 
 ## Still open
 
