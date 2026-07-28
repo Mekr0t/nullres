@@ -12,12 +12,14 @@ import numpy as np
 import pandas as pd
 from scipy import stats as sps
 
+from nullres.backtest.engine import restrict
+
 
 def _drawdown(equity: pd.Series) -> pd.Series:
     return equity / equity.cummax() - 1.0
 
 
-def summarize(result, bars_per_year: int, n_trials: int = 1) -> dict:
+def summarize(result, bars_per_year: int, n_trials: int = 1, mask=None) -> dict:
     """Return a flat dict of performance statistics.
 
     Args:
@@ -25,7 +27,16 @@ def summarize(result, bars_per_year: int, n_trials: int = 1) -> dict:
             this one. Used for the deflated Sharpe ratio. Be honest here — the
             count includes every threshold, horizon, and feature set you tried,
             not just the ones you kept.
+        mask: restrict to these bars before measuring anything. Pass the
+            out-of-sample mask. Bars outside it hold a zeroed position, and
+            averaging across those structural zeros multiplies the Sharpe by
+            `sqrt(fraction in-window)` — see `engine.restrict`. It also fixes
+            `n_obs` for the deflation term, which otherwise counts training
+            bars the strategy never traded.
     """
+    if mask is not None:
+        result = restrict(result, mask)
+
     r = result.returns.astype("float64")
     n = len(r)
     years = n / bars_per_year

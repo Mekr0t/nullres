@@ -31,7 +31,7 @@ from nullres import audit as audit_mod
 from nullres.backtest.metrics import format_table
 from nullres.config import CostConfig, load_config
 from nullres.data import load_bars
-from nullres.pipeline import prepare, run_pipeline, trials_so_far
+from nullres.pipeline import prepare, run_pipeline, trials_caveat, trials_so_far
 
 
 def _banner(text: str) -> None:
@@ -93,13 +93,23 @@ def cmd_log(cfg, args) -> int:
               f"{record.config_name[:17]:<18}{record.command:<9}"
               f"{verdict:<10}{record.git_sha}{dirty}")
 
+    from nullres.runlog import count_trials, unrecorded_variants
+
     killed = sum(1 for r in runs if r.verdict == "KILLED")
     survived = sum(1 for r in runs if r.verdict == "SURVIVED")
     configs = len({r.config_hash for r in runs})
     print(f"\n  {len(runs)} runs over {configs} distinct configs — "
           f"{killed} KILLED, {survived} SURVIVED")
-    print("\n  That run count is also your multiple-testing exposure. Every")
-    print("  variant tried is a chance to find something by luck, which is what")
+    print(f"  {count_trials(runs)} distinct trials (re-running the same config "
+          f"and command is one look, not two)")
+
+    unknown = unrecorded_variants(runs)
+    if unknown:
+        print(f"  {unknown} record(s) predate variant recording and count as 1 "
+              f"each — the real total is higher")
+
+    print("\n  That trial count is your multiple-testing exposure. Every variant")
+    print("  tried is a chance to find something by luck, which is what")
     print("  `deflated_sharpe` discounts. A long log is not a productivity")
     print("  metric — it is a reason to trust the best result less.")
     return 0
@@ -154,6 +164,9 @@ def cmd_run(cfg, args) -> int:
     print(f"\nDeflated Sharpe (adjusted for {n_trials:,} variants tried across "
           f"the whole run ledger,")
     print(f"not just this run — see `nullres log`):")
+    caveat = trials_caveat()
+    if caveat:
+        print(caveat)
     for name, m in results.items():
         verdict = "" if m["deflated_sharpe"] > 0 else "   <- indistinguishable from luck"
         print(f"  {name:<18}{m['deflated_sharpe']:>7.2f}{verdict}")
@@ -283,15 +296,21 @@ def cmd_budget(cfg, args) -> int:
     seconds, and it will tell you whether the thing you are about to attempt is
     possible at all.
     """
-    from nullres.costs import budget_table
+    from nullres.costs import budget_table, format_duration
 
     _banner(f"COST BUDGET: {cfg.data.symbol} {cfg.data.interval}")
     bars = load_bars(cfg.data)
     sigma = float(np.log(bars["close"]).diff().std())
 
+    # Bars carry no duration on their own; the break-even table is only readable
+    # once they are converted to wall-clock time at this config's bar size.
+    hours_per_bar = 8_760 / cfg.data.bars_per_year
+
     print()
-    print(budget_table(sigma, cfg.cost.fee_bps, cfg.cost.slippage_bps))
-    print(f"\nYour config holds a position for at least {cfg.sizing.min_hold} bars.")
+    print(budget_table(sigma, cfg.cost.fee_bps, cfg.cost.slippage_bps,
+                       hours_per_bar=hours_per_bar))
+    print(f"\nYour config holds a position for at least {cfg.sizing.min_hold} bars "
+          f"({format_duration(cfg.sizing.min_hold * hours_per_bar)}).")
     print("If that is far below the break-even row for the accuracy you actually")
     print("achieve, no amount of feature engineering will save the strategy — the")
     print("costs are structurally larger than the signal.")
@@ -301,7 +320,7 @@ def cmd_budget(cfg, args) -> int:
 def cmd_robust(cfg, args) -> int:
     """Try three times to kill a strategy that looked good once."""
     from nullres.robustness import (
-        cross_symbol, grid_for, parameter_neighbourhood,
+        cross_symbol, grid_for, hold_sharpe, parameter_neighbourhood,
         period_stability, pivot_grid, sign_flip_rate, verdict,
     )
 
@@ -350,7 +369,10 @@ def cmd_robust(cfg, args) -> int:
             print(f"  {row['symbol']:<12}{row['total_return']:>10.1%}"
                   f"{row['sharpe']:>9.2f}{row['vs_hold']:>9.2f}{row['n_trades']:>8,}")
 
-    bench = float(stability["sharpe_hold"].mean()) if not stability.empty else None
+    # The bar the grid must clear is buy & hold's Sharpe over the same window
+    # and computed the same way — NOT the mean of its per-year Sharpes, which
+    # is a different statistic and a materially higher bar.
+    bench = hold_sharpe(cfg, ctx)
     ok, notes = verdict(grid, stability, transfer, benchmark_sharpe=bench,
                         flip_rate=flips)
     _banner("VERDICT: " + ("SURVIVED" if ok else "KILLED"))
@@ -510,10 +532,17 @@ def cmd_xsec(cfg, args) -> int:
     print(f"  out-of-sample window: {oos_times[0]:%Y-%m-%d} .. "
           f"{oos_times[-1]:%Y-%m-%d} ({len(oos_times):,} bars)")
 
+    # Books hold nothing before the first test fold opens, so every metric has
+    # to be measured on the out-of-sample bars only. Averaging across the flat
+    # pre-OOS block multiplies Sharpe by sqrt(oos fraction) — see
+    # `engine.restrict`. `benchmarks` already zeroes positions there; this makes
+    # the measurement agree with the intent.
+    oos_mask = pd.Series(panel.times.isin(oos_times), index=panel.times)
+
     results = {}
     for name, result in benchmarks(panel, cfg.cost, oos_times,
                                    rebalance=args.rebalance).items():
-        results[name] = summarize(result, cfg.data.bars_per_year)
+        results[name] = summarize(result, cfg.data.bars_per_year, mask=oos_mask)
 
     stability = None
     if args.top_k:
@@ -527,9 +556,10 @@ def cmd_xsec(cfg, args) -> int:
     for k in ks:
         positions = panel_positions(proba, panel, top_k=k, rebalance=args.rebalance)
         result = backtest_panel(positions, panel, cfg.cost)
-        results[f"longshort_k{k}"] = summarize(result, cfg.data.bars_per_year)
+        results[f"longshort_k{k}"] = summarize(result, cfg.data.bars_per_year,
+                                               mask=oos_mask)
         if stability is None:
-            stability = by_period(result, cfg.data.bars_per_year)
+            stability = by_period(result, cfg.data.bars_per_year, mask=oos_mask)
             stability_k = k
 
     _banner("RESULTS")
@@ -562,11 +592,12 @@ def cmd_xsec(cfg, args) -> int:
         cells = []
         for k in ks:
             m = summarize(backtest_panel(positions_by_k[k], panel, trial_cost),
-                          cfg.data.bars_per_year)
+                          cfg.data.bars_per_year, mask=oos_mask)
             cells.append(f"{m['sharpe']:>12.2f}")
         static = benchmarks(panel, trial_cost, oos_times,
                             rebalance=args.rebalance).get("static_vs_alts")
-        tail = f"{summarize(static, cfg.data.bars_per_year)['sharpe']:>12.2f}" if static else ""
+        tail = (f"{summarize(static, cfg.data.bars_per_year, mask=oos_mask)['sharpe']:>12.2f}"
+                if static else "")
         print(f"  {slip:>9.0f}" + "".join(cells) + tail)
     print("\n  (Sharpe. If the model's column decays fast while static holds up,")
     print("   the durable part of the result needs no model.)")

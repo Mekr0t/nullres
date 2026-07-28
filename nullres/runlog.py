@@ -53,9 +53,15 @@ class RunRecord:
     notes: str = ""
     # How many distinct parameter combinations this run evaluated. A `run` over
     # five strategies is five; a 25-cell sweep is twenty-five. This is the
-    # multiple-testing exposure the run added, and summing it across the ledger
-    # is the only honest input to `deflated_sharpe`.
-    variants: int = 1
+    # multiple-testing exposure the run added, and aggregating it across the
+    # ledger is the only honest input to `deflated_sharpe`.
+    #
+    # None means the record predates the field. It is NOT the same as 1, and
+    # defaulting it to 1 silently counted a 23-cell robustness battery as a
+    # single look — an undercount, in the flattering direction, invisible
+    # because the dataclass default filled the hole. `unrecorded_variants`
+    # counts these so the gap can be reported rather than absorbed.
+    variants: int | None = None
 
     @property
     def short_id(self) -> str:
@@ -121,18 +127,42 @@ def _git_state(repo: Path) -> tuple[str, bool]:
 
 
 def count_trials(runs: list[RunRecord], prior: int = 0) -> int:
-    """Total parameter combinations explored, across every recorded run.
+    """Distinct parameter combinations explored, across every recorded run.
 
     This is deliberately GLOBAL rather than scoped to one config. The question
     multiple-testing correction asks is "how many things did you look at before
     reporting this one", and a researcher who would have published whichever of
     six configs worked has tried all six — not one.
 
+    It counts DISTINCT experiments, not executions. Summing every record made
+    the correction a function of how often commands were run: repeating one
+    `xsec` five times took the count 230 -> 270 and quietly lowered every
+    reported deflated Sharpe without a single new hypothesis being tested, which
+    also means a number quoted in the docs could not be reproduced later. Each
+    (config fingerprint, command) pair therefore contributes once, at the
+    largest variant count seen for it — a re-run is the same look, and a wider
+    sweep of the same config is a bigger one.
+
     `prior` declares trials that predate the ledger. Undercounting is the
     failure this whole function exists to fix, so an honest estimate of past
     work belongs here rather than a zero.
     """
-    return prior + sum(max(r.variants, 1) for r in runs)
+    seen: dict[tuple[str, str], int] = {}
+    for record in runs:
+        key = (record.config_hash, record.command)
+        declared = 1 if record.variants is None else max(record.variants, 1)
+        seen[key] = max(seen.get(key, 0), declared)
+    return prior + sum(seen.values())
+
+
+def unrecorded_variants(runs: list[RunRecord]) -> int:
+    """Records written before `variants` existed, each counted as a single look.
+
+    Reported rather than repaired: the ledger is append-only and back-filling a
+    guess would be worse than naming the gap. A non-zero count means the true
+    multiple-testing exposure is HIGHER than `count_trials` returns.
+    """
+    return sum(1 for r in runs if r.variants is None)
 
 
 def record_run(cfg: Any, command: str, metrics: dict[str, Any] | None = None,
@@ -160,7 +190,7 @@ def record_run(cfg: Any, command: str, metrics: dict[str, Any] | None = None,
         metrics=metrics or {},
         verdict=verdict,
         notes=notes,
-        variants=max(int(variants), 1),
+        variants=max(int(variants), 1),      # always written; never left unset
     )
 
     out = Path(runs_dir)

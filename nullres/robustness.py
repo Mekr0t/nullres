@@ -105,7 +105,12 @@ def parameter_neighbourhood(cfg, strategy: str, ctx=None, grid=None) -> pd.DataF
 
             positions = strategy_obj.positions(ctx)
             result = backtest(ctx.bars, positions, trial.cost)
-            metrics = summarize(result, trial.data.bars_per_year)
+            # Same out-of-sample restriction the pipeline applies. Without it
+            # the grid is measured over the full frame while `benchmark_sharpe`
+            # comes from `period_stability`, which masks — so `verdict` compared
+            # a deflated grid against an undeflated bar.
+            metrics = summarize(result, trial.data.bars_per_year,
+                                mask=ctx.oos_mask)
             rows.append({**combo,
                          "sharpe": metrics["sharpe"],
                          "total_return": metrics["total_return"],
@@ -139,6 +144,22 @@ def period_stability(cfg, strategy: str, ctx=None, freq: str = "YE") -> pd.DataF
     )
     merged["excess_sharpe"] = merged["sharpe"] - merged["sharpe_hold"]
     return merged
+
+
+def hold_sharpe(cfg, ctx) -> float:
+    """Buy & hold's Sharpe, on the same window AND the same statistic as the grid.
+
+    `verdict` reports what fraction of the neighbourhood beats buy & hold, and
+    that comparison is only meaningful if both sides are the same measurement.
+    They were not: the grid reports a full-window Sharpe while the benchmark was
+    taken as the mean of `period_stability`'s per-year Sharpes. Averaging annual
+    Sharpes is a different statistic — on the 4h config it gives 0.53 against a
+    full-window 0.38, overstating the bar by 40%.
+    """
+    positions = build_strategy("buy_hold").positions(ctx)
+    result = backtest(ctx.bars, positions, cfg.cost)
+    return float(summarize(result, cfg.data.bars_per_year,
+                           mask=ctx.oos_mask)["sharpe"])
 
 
 def cross_symbol(cfg, strategy: str, symbols: list[str],

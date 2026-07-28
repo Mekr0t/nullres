@@ -58,10 +58,29 @@ def breakeven_hold(sigma_per_bar: float, accuracy: float,
             / (edge * sigma_per_bar * SQRT_2_OVER_PI)) ** 2
 
 
+def format_duration(hours: float) -> str:
+    """Wall-clock rendering of a holding period, in units a human can act on."""
+    if not np.isfinite(hours):
+        return "never"
+    if hours < 48:
+        return f"{hours:.1f} hours"
+    days = hours / 24.0
+    return f"{days:.1f} days" if days < 90 else f"{days / 30.4:.1f} months"
+
+
 def budget_table(sigma_per_bar: float, fee_bps: float, slippage_bps: float,
+                 hours_per_bar: float = 1.0,
                  holds=(1, 6, 12, 24, 72, 168, 336, 720),
                  accuracies=(0.51, 0.52, 0.55, 0.60)) -> str:
-    """Render the two tables that should precede any modelling work."""
+    """Render the two tables that should precede any modelling work.
+
+    `hours_per_bar` converts break-even BARS into wall-clock duration, and it is
+    the whole point of the second table — duration is what is invariant across
+    timeframes, bars are not. Hardcoding 24 bars-to-a-day (i.e. assuming hourly)
+    made `nullres budget` claim a 1d config broke even in 0.9 days when the
+    honest answer is the same ~21 days it is at every other timeframe. Callers
+    pass `8760 / bars_per_year`.
+    """
     cost = round_trip_cost(fee_bps, slippage_bps)
     lines = [
         f"per-bar volatility      {sigma_per_bar:.4%}",
@@ -80,7 +99,6 @@ def budget_table(sigma_per_bar: float, fee_bps: float, slippage_bps: float,
               f"  {'accuracy':<14}{'hold (bars)':>14}{'~duration':>14}"]
     for acc in accuracies:
         h = breakeven_hold(sigma_per_bar, acc, fee_bps, slippage_bps)
-        days = h / 24.0
-        dur = f"{days:.1f} days" if days < 90 else f"{days / 30.4:.1f} months"
-        lines.append(f"  {acc:<14.0%}{h:>14,.0f}{dur:>14}")
+        lines.append(f"  {acc:<14.0%}{h:>14,.0f}"
+                     f"{format_duration(h * hours_per_bar):>14}")
     return "\n".join(lines)

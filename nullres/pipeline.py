@@ -145,6 +145,21 @@ def trials_so_far(cfg, extra: int = 0) -> int:
     return max(count_trials(history, prior=getattr(cfg, "prior_trials", 0)) + extra, 1)
 
 
+def trials_caveat() -> str:
+    """Anything that makes the trial count a FLOOR rather than a measurement."""
+    from nullres.runlog import load_runs, unrecorded_variants
+
+    try:
+        unknown = unrecorded_variants(load_runs())
+    except OSError:
+        return ""
+    if not unknown:
+        return ""
+    return (f"  NOTE: {unknown} ledger record(s) predate variant recording and "
+            f"count as 1 trial each.\n        The true exposure is higher, so "
+            f"the deflated Sharpe below is generous.")
+
+
 def run_pipeline(cfg, verbose: bool = True, ctx: Context | None = None,
                  n_trials: int | None = None) -> dict[str, dict]:
     """Run every configured strategy and return {name: metrics}.
@@ -171,7 +186,11 @@ def run_pipeline(cfg, verbose: bool = True, ctx: Context | None = None,
         strategy = build_strategy(name, cfg.params.get(name))
         positions = strategy.positions(ctx)
         result = backtest(ctx.bars, positions, cfg.cost)
-        metrics = summarize(result, cfg.data.bars_per_year, n_trials=n_trials)
+        # Measured on the out-of-sample window only. Positions are zeroed
+        # outside it, and averaging over those zeros deflates every Sharpe by
+        # sqrt(oos fraction) — uniformly, so it hid in the rankings.
+        metrics = summarize(result, cfg.data.bars_per_year, n_trials=n_trials,
+                            mask=ctx.oos_mask)
         results[name] = metrics
         ctx.diagnostics.setdefault(name, {})["result"] = result
 

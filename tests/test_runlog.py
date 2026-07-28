@@ -119,6 +119,69 @@ def test_trial_count_never_undercounts_to_zero(cfg, tmp_path):
     assert count_trials(load_runs(str(tmp_path))) == 1
 
 
+def test_rerunning_the_same_experiment_is_not_a_new_trial(cfg, tmp_path):
+    """Otherwise the correction measures keystrokes instead of hypotheses.
+
+    Summing every record made `deflated_sharpe` a function of how often commands
+    were run: repeating one `xsec` five times took the count 230 -> 270 and
+    lowered every reported result without a single new hypothesis being tested.
+    It also means a deflated Sharpe quoted in the docs cannot be reproduced —
+    the number drifts down every time anyone runs anything.
+    """
+    from nullres.runlog import count_trials
+
+    for _ in range(5):
+        record_run(cfg, "run", variants=7, runs_dir=str(tmp_path))
+
+    runs = load_runs(str(tmp_path))
+    assert len(runs) == 5, "the ledger still keeps every execution"
+    assert count_trials(runs) == 7, "five identical runs are one look, not five"
+
+
+def test_a_different_config_or_command_is_a_new_trial(cfg, tmp_path):
+    from nullres.runlog import count_trials
+
+    record_run(cfg, "run", variants=7, runs_dir=str(tmp_path))
+    record_run(cfg, "sweep", variants=25, runs_dir=str(tmp_path))   # same config
+    tweaked = copy.deepcopy(cfg)
+    tweaked.sizing.min_hold = 999
+    record_run(tweaked, "run", variants=7, runs_dir=str(tmp_path))  # new config
+
+    assert count_trials(load_runs(str(tmp_path))) == 7 + 25 + 7
+
+
+def test_widening_a_sweep_raises_the_count_for_that_experiment(cfg, tmp_path):
+    """Re-running the same config with MORE cells did explore more."""
+    from nullres.runlog import count_trials
+
+    record_run(cfg, "sweep", variants=9, runs_dir=str(tmp_path))
+    record_run(cfg, "sweep", variants=25, runs_dir=str(tmp_path))
+    assert count_trials(load_runs(str(tmp_path))) == 25
+
+
+def test_records_predating_variants_are_flagged_not_absorbed(cfg, tmp_path):
+    """A missing field must not be read as 'one trial' in silence.
+
+    Two real records predate `variants`. The dataclass default filled the hole,
+    so a 23-cell robustness battery counted as a single look — an undercount, in
+    the flattering direction, invisible in every output.
+    """
+    from nullres.runlog import count_trials, unrecorded_variants
+
+    record = record_run(cfg, "robust", runs_dir=str(tmp_path))
+    path = next(tmp_path.glob("*.json"))
+    raw = json.loads(path.read_text())
+    del raw["variants"]                       # the old on-disk schema
+    path.write_text(json.dumps(raw))
+
+    runs = load_runs(str(tmp_path))
+    assert len(runs) == 1, "an old record must still load"
+    assert runs[0].variants is None, "absent is not the same as one"
+    assert unrecorded_variants(runs) == 1
+    assert count_trials(runs) == 1, "counted as a single look, but reported"
+    assert record.variants == 1, "newly written records always declare it"
+
+
 def test_deflation_strengthens_as_trials_accumulate():
     """The whole point: looking more times must lower the surviving Sharpe.
 

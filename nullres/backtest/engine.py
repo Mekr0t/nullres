@@ -71,6 +71,37 @@ def backtest(bars: pd.DataFrame, position: pd.Series, cost_cfg) -> BacktestResul
     )
 
 
+def restrict(result: BacktestResult, mask) -> BacktestResult:
+    """Narrow a result to a subset of bars, rebasing equity to the first of them.
+
+    Strategies are evaluated over the whole frame with positions ZEROED outside
+    the out-of-sample window, not absent from it. A result therefore carries a
+    block of structural zero returns, and summarising across them is not a
+    harmless dilution: zeros scale the mean by their share `f` and the standard
+    deviation by `sqrt(f)`, so the reported Sharpe comes out as
+
+        sharpe_full = sqrt(f) * sharpe_oos
+
+    which is 0.88x on the 4h config — every strategy understated by the same
+    12%. The t-statistic is immune (the factor cancels top and bottom), which is
+    why this survived a test suite that checks t-stats.
+
+    One boundary note: the trade that closes the final position lands on the
+    first bar AFTER the window and is dropped here, so `n_trades` counts entries
+    within the window and not that last exit. Measuring strictly inside the
+    window is the convention; the alternative pulls a return from outside it.
+    """
+    r = result.returns[mask]
+    return BacktestResult(
+        equity=np.exp(r.cumsum()),
+        returns=r,
+        gross=result.gross[mask],
+        position=result.position[mask],
+        turnover=result.turnover[mask],
+        cost=result.cost[mask],
+    )
+
+
 def buy_and_hold(bars: pd.DataFrame, cost_cfg) -> BacktestResult:
     """Reference strategy: fully long from the first fill, never trades again."""
     pos = pd.Series(1.0, index=bars.index)

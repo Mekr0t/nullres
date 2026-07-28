@@ -58,6 +58,41 @@ def test_a_51_percent_model_needs_weeks_at_1h():
     assert 300 < h < 800, f"expected several hundred bars, got {h:.0f}"
 
 
+def test_budget_table_reports_duration_at_the_configured_bar_size():
+    """The printed `~duration` column has to know how long a bar is.
+
+    It did not — it divided bars by 24, i.e. assumed hourly. `nullres budget`
+    on the 1d config therefore claimed 51% accuracy broke even in 0.9 days,
+    against a true ~21 days. The number that command exists to deliver, wrong
+    on every config except the one it was written against.
+    """
+    from nullres.costs import budget_table
+
+    printed = {}
+    for interval, hours, bars_per_year in (("1h", 1, 8_760), ("4h", 4, 2_190),
+                                           ("1d", 24, 365)):
+        sigma = SIGMA_1H_BTC * np.sqrt(hours)
+        table = budget_table(sigma, 10, 2, hours_per_bar=8_760 / bars_per_year)
+        row = next(ln for ln in table.splitlines() if ln.strip().startswith("51%"))
+        printed[interval] = row.split()[-2:]
+
+    days = [float(v[0]) for v in printed.values()]
+    assert all(v[1] == "days" for v in printed.values()), printed
+    assert max(days) / min(days) < 1.05, (
+        f"duration must be timeframe-invariant, got {printed}"
+    )
+    assert 18 < days[0] < 24, printed
+
+
+def test_format_duration_switches_units():
+    from nullres.costs import format_duration
+
+    assert format_duration(6) == "6.0 hours"
+    assert format_duration(24 * 21) == "21.0 days"
+    assert "months" in format_duration(24 * 200)
+    assert format_duration(float("inf")) == "never"
+
+
 def test_breakeven_duration_is_invariant_to_timeframe():
     """Moving to a slower timeframe does NOT reduce costs. Easy to get wrong.
 
