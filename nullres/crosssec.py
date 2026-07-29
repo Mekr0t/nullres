@@ -274,17 +274,34 @@ def _cross_sectional_rank(frame: pd.DataFrame,
     tradable symbols at that bar. Ranking against illiquid names would produce
     an ordering you cannot act on, and would shift every percentile as coins
     drift in and out of the archive.
+
+    **This MUTATES `frame` in place**, which is ugly and deliberate. On a wide
+    panel the frame is ~400MB, and the obvious spelling — mask into a new frame,
+    then rank the whole thing at once — holds three copies at the peak. That was
+    enough to get the process OOM-killed on a 2GB machine at the moment the
+    panel was finally assembled, after hours of work. Masking in place and
+    ranking one feature at a time keeps the peak at one copy plus one column.
+    The caller (`load_panel`) discards `frame` immediately afterwards.
     """
     if screen is not None:
         mask = screen.stack(future_stack=True)
         mask.index.names = ["ts", "symbol"]
-        frame = frame.where(mask.reindex(frame.index).fillna(False), other=np.nan)
+        aligned = mask.reindex(frame.index).fillna(False)
+        frame.where(aligned, other=np.nan, inplace=True)
+        del aligned
 
-    ranked = frame.groupby(level="ts").rank(pct=True)
-    # Timestamps with too few live symbols cannot support a ranking.
+    # Timestamps with too few live symbols cannot support a ranking. Computed
+    # BEFORE ranking, because ranking overwrites the values it reads.
     live = frame.notna().any(axis=1).groupby(level="ts").sum()
-    usable = live[live >= 3].index
-    return ranked[ranked.index.get_level_values("ts").isin(usable)]
+
+    # One column at a time. `frame.groupby(level="ts").rank(pct=True)` allocates
+    # a second full panel; this allocates a second column.
+    for column in frame.columns:
+        frame[column] = frame[column].groupby(level="ts").rank(pct=True)
+    usable = live[live >= 3]
+    if len(usable) == len(live):
+        return frame          # nothing to drop, so do not copy the panel to say so
+    return frame[frame.index.get_level_values("ts").isin(usable.index)]
 
 
 def _relative_label(log_open: pd.DataFrame, horizon: int) -> pd.Series:
