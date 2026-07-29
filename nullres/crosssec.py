@@ -123,12 +123,30 @@ def load_panel(cfg, symbols: list[str] | None = None, verbose: bool = True,
     _guard_metrics_fetch(d, list(bars_by_symbol))
 
     # Pass 2: features, only for symbols that can ever be traded.
+    #
+    # This is the longest silent stretch in the repo. On a wide universe it
+    # loads auxiliary archives and builds features for a hundred-odd symbols,
+    # which takes tens of minutes and used to print nothing at all — the
+    # per-symbol line below is suppressed above 15 symbols, precisely when the
+    # wait is longest. There was no way to tell a working run from a hung one,
+    # or to see it approaching the memory ceiling before the kernel intervened.
     per_symbol: dict[str, pd.DataFrame] = {}
     funding_cols: dict[str, pd.Series] = {}
-    for symbol, bars in bars_by_symbol.items():
+    wide = len(bars_by_symbol) > 15
+    if verbose and wide:
+        print(f"\nbuilding features for {len(bars_by_symbol)} symbols "
+              f"(quiet for a while; progress every 10)")
+
+    for done, (symbol, bars) in enumerate(bars_by_symbol.items(), start=1):
         sym_cfg = _symbol_cfg(d, symbol)
         fund, metrics = load_auxiliary(sym_cfg, verbose=False, bars=bars)
         per_symbol[symbol] = build_features(bars, funding=fund, metrics=metrics)
+
+        if verbose and wide and (done % 10 == 0 or done == len(bars_by_symbol)):
+            columns = per_symbol[symbol].shape[1]
+            held = sum(f.memory_usage(deep=True).sum() for f in per_symbol.values())
+            print(f"  {done:>4}/{len(bars_by_symbol)}  {columns} features  "
+                  f"{held / 1e6:,.0f} MB held", flush=True)
 
         if fund is not None and len(fund):
             # Funding settles every 8h; a bar of `interval_hours` carries that
@@ -155,12 +173,30 @@ def load_panel(cfg, symbols: list[str] | None = None, verbose: bool = True,
 
     funding = pd.DataFrame(funding_cols).reindex(times).fillna(0.0)
 
+    # A wide panel is the memory peak of this whole repository: 123 symbols x
+    # ~9,000 timestamps x 46 features is ~400MB per copy, and building it makes
+    # several (reindex, concat, sort, rank). At 46 features that was enough to
+    # get the process OOM-killed on a 2GB machine — after two and a half hours
+    # of downloading, so the failure landed as far as possible from its cause.
+    #
+    # The obvious economy is float32, and it is NOT free: it moved the narrow
+    # panel's mean AUC from 0.5443 to 0.5429. Ranking is supposed to make the
+    # precision irrelevant, but near-ties reorder and the model's binning shifts
+    # with them. Trading a numerical change in the headline result for memory is
+    # not a trade this repo can make quietly, so the frames stay float64 and the
+    # peak is cut by holding fewer copies at once instead.
+    built = list(per_symbol)
     frame = pd.concat(
         {s: f.reindex(times) for s, f in per_symbol.items()},
         names=["symbol", "ts"],
     ).swaplevel().sort_index()
+    per_symbol.clear()          # ~400MB, no longer needed once stacked
+    if verbose:
+        print(f"  panel frame: {len(frame):,} rows x {frame.shape[1]} features "
+              f"({frame.memory_usage(deep=True).sum() / 1e6:,.0f} MB)", flush=True)
 
     ranked = _cross_sectional_rank(frame, screen)
+    del frame                   # another ~400MB, before the label is built
     y = _relative_label(log_open.where(screen) if screen is not None else log_open,
                         cfg.label.horizon)
 
@@ -172,8 +208,8 @@ def load_panel(cfg, symbols: list[str] | None = None, verbose: bool = True,
         funding=funding,
         times=times,
         horizon=cfg.label.horizon,
-        symbols=list(per_symbol),
-        delisted={s: t for s, t in delisted.items() if s in per_symbol},
+        symbols=built,
+        delisted={s: t for s, t in delisted.items() if s in built},
     )
 
 
