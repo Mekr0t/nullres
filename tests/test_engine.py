@@ -188,6 +188,45 @@ def test_hit_rate_scores_the_bar_that_earned_the_return():
     assert summarize(result, 8_760)["hit_rate"] == pytest.approx(0.5)
 
 
+def test_gross_exposure_distinguishes_leverage_from_participation():
+    """`expo` says how OFTEN you were in the market, not how big you were.
+
+    A dollar-neutral long/short book is 100% long and 100% short: net zero,
+    gross 2x, margin required. `exposure` reported a serene 100% for that and
+    for a plain 1x long alike, so nothing in the results table revealed that the
+    cross-sectional book carried twice the notional its config appeared to allow.
+    """
+    from nullres.backtest.metrics import summarize
+
+    bars = bars_from_opens([100.0] * 20)
+
+    plain = summarize(backtest(bars, pd.Series(1.0, index=bars.index), NO_COST),
+                      8_760)
+    levered = summarize(backtest(bars, pd.Series(2.0, index=bars.index), NO_COST),
+                        8_760)
+
+    assert plain["exposure"] == levered["exposure"] == 1.0, "the old blind spot"
+    assert plain["gross_exposure"] == pytest.approx(1.0)
+    assert levered["gross_exposure"] == pytest.approx(2.0)
+    assert levered["peak_exposure"] == pytest.approx(2.0)
+
+
+def test_gross_exposure_is_reported_for_a_panel_book():
+    """The panel path stores gross notional in `position`; it must surface."""
+    import numpy as np
+
+    from nullres.backtest.metrics import summarize
+    from nullres.backtest.engine import BacktestResult
+
+    idx = pd.date_range("2022-01-01", periods=10, freq="4h")
+    zero = pd.Series(0.0, index=idx)
+    # A k=2 dollar-neutral book: +0.5, +0.5, -0.5, -0.5 -> gross 2.0, net 0.
+    result = BacktestResult(equity=pd.Series(1.0, index=idx), returns=zero,
+                            gross=zero, position=pd.Series(2.0, index=idx),
+                            turnover=zero, cost=zero)
+    assert summarize(result, 2_190)["gross_exposure"] == pytest.approx(2.0)
+
+
 def test_restrict_leaves_a_fully_traded_result_alone():
     from nullres.backtest.engine import restrict
 

@@ -147,7 +147,8 @@ def cmd_run(cfg, args) -> int:
           f"min_hold={cfg.sizing.min_hold}")
     _warn_if_already_killed(cfg)
 
-    n_trials = args.trials or trials_so_far(cfg, extra=len(cfg.strategies) + 1)
+    n_trials = args.trials or trials_so_far(
+        cfg, extra=len(cfg.strategies) + 1, command="run")
 
     if args.ablate:
         from nullres.pipeline import ablate
@@ -579,15 +580,6 @@ def cmd_xsec(cfg, args) -> int:
     # called without `n_trials`, so `deflated_sharpe` returned the raw Sharpe and
     # every deflation figure in the docs had to be worked out by hand. The
     # correction is worth least on the results you were never going to question.
-    n_trials = args.trials or trials_so_far(cfg, extra=1)
-
-    results = {}
-    for name, result in benchmarks(panel, cfg.cost, oos_times,
-                                   rebalance=args.rebalance).items():
-        results[name] = summarize(result, cfg.data.bars_per_year,
-                                  n_trials=n_trials, mask=oos_mask)
-
-    stability = None
     if args.top_k:
         ks = (args.top_k,)
     else:
@@ -596,6 +588,19 @@ def cmd_xsec(cfg, args) -> int:
         # narrow to wide is how you see whether that actually helps.
         width = args.top_n or len(panel.symbols)
         ks = (2, 3, 4) if width < 12 else (2, 5, 10, 15)
+
+    # Books are built before the trial count so `extra` is the number this run
+    # actually evaluates, matching what gets recorded in the ledger.
+    books = benchmarks(panel, cfg.cost, oos_times, rebalance=args.rebalance)
+    n_trials = args.trials or trials_so_far(
+        cfg, extra=len(books) + len(ks), command="xsec")
+
+    results = {}
+    for name, result in books.items():
+        results[name] = summarize(result, cfg.data.bars_per_year,
+                                  n_trials=n_trials, mask=oos_mask)
+
+    stability = None
     for k in ks:
         positions = panel_positions(proba, panel, top_k=k, rebalance=args.rebalance)
         result = backtest_panel(positions, panel, cfg.cost)
@@ -607,6 +612,18 @@ def cmd_xsec(cfg, args) -> int:
 
     _banner("RESULTS")
     print(format_table(results))
+
+    # Gross notional is the number that decides whether margin is involved, and
+    # a dollar-neutral book hides it: net is 0 and `expo` reads 100% whether you
+    # are carrying 1x or 5x.
+    book = max(results.items(), key=lambda kv: kv[1].get("gross_exposure", 0.0))
+    if book[1].get("gross_exposure", 0.0) > 1.01:
+        print(f"\nGross exposure: {book[0]} carries "
+              f"{book[1]['gross_exposure']:.2f}x notional "
+              f"(peak {book[1]['peak_exposure']:.2f}x) against zero net. "
+              f"`sizing.max_leverage`\nis a single-asset clip and does not apply "
+              f"here — a long/short book is 100% each\nway by construction. It "
+              f"still needs margin, and the engine models none.")
 
     print(f"\nDeflated Sharpe (adjusted for {n_trials:,} variants across the run "
           f"ledger):")

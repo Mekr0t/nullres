@@ -64,6 +64,14 @@ def summarize(result, bars_per_year: int, n_trials: int = 1, mask=None) -> dict:
     gross_total = float(np.exp(result.gross.sum()) - 1.0)
     cost_log = result.total_cost
     exposure = float((result.position.abs() > 1e-12).mean())
+    # `exposure` answers "how often was it in the market", which says nothing
+    # about how BIG the position was. For a panel that is the whole question: a
+    # dollar-neutral long/short book carries 1.0 long and 1.0 short, so its
+    # gross notional is 2x equity, and `exposure` reported a serene 100% either
+    # way. Mean |position| is the same statistic for both paths — average
+    # leverage — and it is the one that tells you margin is involved.
+    gross_exposure = float(result.position.abs().mean())
+    peak_exposure = float(result.position.abs().max())
     # The engine sets gross = position * fwd, so returns[t] is earned by
     # position[t] — not position[t-1]. Masking on a shifted position asked
     # whether the WRONG bar was in the market.
@@ -86,6 +94,8 @@ def summarize(result, bars_per_year: int, n_trials: int = 1, mask=None) -> dict:
         "n_trades": result.n_trades,
         "turnover_per_year": float(result.turnover.sum() / years) if years > 0 else 0.0,
         "exposure": exposure,
+        "gross_exposure": gross_exposure,
+        "peak_exposure": peak_exposure,
         "hit_rate": hit_rate,
         "bars": n,
         "years": years,
@@ -187,6 +197,7 @@ COLUMNS = [
     ("n_trades",     "trades",  9, lambda v: f"{v:,.0f}"),
     ("cost_drag",    "cost",    8, lambda v: f"{v:.1%}"),
     ("exposure",     "expo",    7, lambda v: f"{v:.0%}"),
+    ("gross_exposure", "gross", 8, lambda v: f"{v:.2f}x"),
 ]
 
 

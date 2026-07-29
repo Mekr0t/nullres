@@ -354,6 +354,16 @@ def panel_positions(proba: pd.Series, panel: Panel, top_k: int = 3,
     Weights are +1/k and -1/k so gross exposure is 2 and net is 0 — the book
     makes no bet on the market's direction, which is the entire point.
 
+    **That gross of 2.0 is deliberate, and `sizing.max_leverage` does not
+    constrain it.** That field clips a single-asset position to +/-1 and is
+    never read here; a dollar-neutral book is 100% long and 100% short by
+    definition, and capping gross at 1.0 would mean holding half of each side,
+    which is a different strategy rather than a safer version of this one. But
+    2x gross notional is 2x notional whatever the net is: it requires margin,
+    and it is why the tail census in `panelaudit` matters. `summarize` reports
+    `gross_exposure` so this is visible in the results table instead of being
+    inferable only from reading this function.
+
     `rebalance` throttles turnover exactly as `min_hold` does in the
     single-asset engine. Reshuffling an 11-symbol book every bar is the
     cross-sectional version of the mistake that cost the original baseline 100%.

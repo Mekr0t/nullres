@@ -253,6 +253,18 @@ restricted to the out-of-sample window — so the model's books collected ~42 ba
 that `static_vs_alts` and `btc_only` were zeroed out of. Both sides are now
 measured on the same bars.
 
+**Every long/short book here carries 2x gross notional** — 100% long and 100%
+short — against zero net. That is inherent to dollar neutrality, not a leverage
+choice, and `sizing.max_leverage` does not apply to the panel (it clips a
+single-asset position and `crosssec.py` never reads it). It is reported as
+`gross` in the results table because net-zero hides it: `expo` reads 100%
+whether a book carries 1x or 5x.
+
+It applies to `static_vs_alts` too, which matters when reading it as the
+"simpler alternative" — it is simpler in turnover and in needing no model, but
+it requires the same margin. `btc_only` and `equal_weight` are the only 1x books
+in the comparison.
+
 **Cost sensitivity — the decisive measurement.** Fee held at 5bps:
 
 | slippage/side | k=2 | k=5 | k=10 | k=15 | static |

@@ -128,21 +128,28 @@ def coherence_warnings(cfg, bars: pd.DataFrame) -> list[str]:
     return out
 
 
-def trials_so_far(cfg, extra: int = 0) -> int:
+def trials_so_far(cfg, extra: int = 0, command: str | None = None) -> int:
     """Multiple-testing exposure: everything looked at before reporting this.
 
     Reads the run ledger rather than counting strategies in the current run.
     Counting only the current run is the mistake this replaces — it reported
     `n_trials=6` for a project that had explored well over a hundred parameter
     combinations, which made every deflated Sharpe too generous.
+
+    `extra` is how many variants the run about to happen will evaluate. It is
+    folded into the ledger's own dedupe rather than added on top — see
+    `runlog.count_trials` — so verifying an existing result does not inflate
+    that result's own correction.
     """
-    from nullres.runlog import count_trials, load_runs
+    from nullres.runlog import config_hash, count_trials, load_runs
 
     try:
         history = load_runs()
     except OSError:
         history = []
-    return max(count_trials(history, prior=getattr(cfg, "prior_trials", 0)) + extra, 1)
+    pending = (config_hash(cfg), command, extra) if command and extra else None
+    return max(count_trials(history, prior=getattr(cfg, "prior_trials", 0),
+                            pending=pending) + (0 if pending else extra), 1)
 
 
 def trials_caveat() -> str:

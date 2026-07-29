@@ -93,6 +93,11 @@ class SizingConfig:
     short_exit: float = 0.50
     allow_short: bool = True
     min_hold: int = 6                # bars a position must be held before flipping
+    # SINGLE-ASSET ONLY. Clips the position to +/-this. `nullres xsec` never
+    # reads it: a dollar-neutral book is 100% long and 100% short, so its gross
+    # is 2.0 by construction and capping it at 1.0 would be a different
+    # strategy, not a safer one. Read `gross_exposure` in the results table to
+    # see what a book is actually carrying.
     max_leverage: float = 1.0
     vol_target: float = 0.0          # >0 scales exposure to this annualised vol
 

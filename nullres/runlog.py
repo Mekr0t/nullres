@@ -146,7 +146,8 @@ def _git_state(repo: Path, runs_dir: str = RUNS_DIR) -> tuple[str, bool]:
     return sha, dirty
 
 
-def count_trials(runs: list[RunRecord], prior: int = 0) -> int:
+def count_trials(runs: list[RunRecord], prior: int = 0,
+                 pending: tuple[str, str, int] | None = None) -> int:
     """Distinct parameter combinations explored, across every recorded run.
 
     This is deliberately GLOBAL rather than scoped to one config. The question
@@ -166,8 +167,19 @@ def count_trials(runs: list[RunRecord], prior: int = 0) -> int:
     `prior` declares trials that predate the ledger. Undercounting is the
     failure this whole function exists to fix, so an honest estimate of past
     work belongs here rather than a zero.
+
+    `pending` is the run about to happen, as `(config_hash, command, variants)`.
+    It is folded into the same dedupe rather than added on top, because adding
+    it on top reintroduces the bug in miniature: re-running an experiment
+    already in the ledger would nudge its own trial count up by its own size
+    every time, so a reported deflated Sharpe drifted with each verification.
+    Folded in, a re-run adds nothing and only a wider sweep of the same config
+    raises the count.
     """
     seen: dict[tuple[str, str], int] = {}
+    if pending is not None:
+        config_hash_, command, variants = pending
+        seen[(config_hash_, command)] = max(int(variants), 1)
     for record in runs:
         # Calibration is not exploration. `configs/null.toml` runs the pipeline
         # on a random walk to prove the harness finds nothing; it tests no

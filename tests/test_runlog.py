@@ -138,6 +138,31 @@ def test_rerunning_the_same_experiment_is_not_a_new_trial(cfg, tmp_path):
     assert count_trials(runs) == 7, "five identical runs are one look, not five"
 
 
+def test_the_run_about_to_happen_folds_into_the_dedupe(cfg, tmp_path):
+    """Otherwise the fix for re-runs leaks back in through the `extra` term.
+
+    `trials_so_far` adds the pending run's variants so the correction accounts
+    for work not yet recorded. Added on top, that meant re-running an already
+    recorded experiment nudged its own count up by its own size every time — a
+    published deflated Sharpe drifting a little with each verification, which is
+    the exact bug the dedupe exists to prevent. Folded into the same dedupe, a
+    re-run contributes nothing and only a wider sweep raises the count.
+    """
+    from nullres.runlog import config_hash, count_trials
+
+    record_run(cfg, "xsec", variants=6, runs_dir=str(tmp_path))
+    runs = load_runs(str(tmp_path))
+    fingerprint = config_hash(cfg)
+
+    assert count_trials(runs) == 6
+    assert count_trials(runs, pending=(fingerprint, "xsec", 6)) == 6, \
+        "re-running the same experiment is not new exposure"
+    assert count_trials(runs, pending=(fingerprint, "xsec", 20)) == 20, \
+        "a WIDER sweep of the same config is more exposure"
+    assert count_trials(runs, pending=(fingerprint, "sweep", 25)) == 31, \
+        "a different command on the same config is new exposure"
+
+
 def test_a_different_config_or_command_is_a_new_trial(cfg, tmp_path):
     from nullres.runlog import count_trials
 
