@@ -218,6 +218,75 @@ def test_tail_census_reports_expectation_not_just_observation():
     assert census["expected_hits"] == pytest.approx(0.5)
 
 
+def test_tail_curve_prices_a_hit_against_the_book_s_own_weight():
+    """The ruin arithmetic the graveyard did by hand, made mechanical.
+
+    "One UNFI-type event (+274% in 4h) against a -0.5 weight is -137% of
+    capital" is a calculation, not a judgement, and it belongs in code where it
+    updates itself when the book changes.
+    """
+    from nullres.panelaudit import tail_curve
+
+    n = 1_000
+    returns = {"AAA": [0.0] * n, "BBB": [0.0] * n}
+    returns["AAA"][10] = float(np.log(2.0))       # +100% in one bar
+    panel = panel_of(returns)
+    # Dollar-neutral k=1 book: long AAA, short BBB at half weight each.
+    positions = pd.DataFrame({"AAA": [0.5] * n, "BBB": [-0.5] * n},
+                             index=panel.times)
+
+    curve = tail_curve(positions, panel, thresholds=(0.5, 1.0, 2.0))
+    assert curve.attrs["worst_short_weight"] == pytest.approx(0.5)
+
+    # A +200% move against a -0.5 weight costs 100% of capital: ruin.
+    row = curve.set_index("move").loc[2.0]
+    assert row["cost_of_one"] == pytest.approx(1.0)
+    assert bool(row["ruinous"]) is True
+    # A +50% move costs 25% — survivable.
+    assert bool(curve.set_index("move").loc[0.5]["ruinous"]) is False
+
+
+def test_an_unobserved_move_size_is_bounded_not_zero():
+    """Concluding a tail probability is zero from non-observation is the error.
+
+    The panel contains no +200% four-hour move, so the empirical rate is 0 and
+    the expected-hits column read 0.00 for the level that would wipe the book
+    out — which looks like safety and is really an empty sample. The rule of
+    three bounds an unobserved rate at 3/N instead of asserting it is zero.
+    """
+    from nullres.panelaudit import tail_curve
+
+    n = 1_000
+    panel = panel_of({"AAA": [0.0] * n, "BBB": [0.0] * n})
+    positions = pd.DataFrame({"AAA": [0.5] * n, "BBB": [-0.5] * n},
+                             index=panel.times)
+
+    curve = tail_curve(positions, panel, thresholds=(2.0,)).iloc[0]
+    assert curve["occurrences"] == 0
+    assert bool(curve["estimated"]) is False
+    # 3 / 2000 observed symbol-bars, times 1000 short-name-bars.
+    assert curve["expected_hits"] == pytest.approx(3 / 2_000 * 1_000)
+    assert curve["expected_hits"] > 0, "an unseen event is not an impossible one"
+
+
+def test_tail_curve_sweeps_rather_than_trusting_one_threshold():
+    """A rate at one move size is one point on a steeply falling curve."""
+    from nullres.panelaudit import tail_curve
+
+    n = 2_000
+    rng = np.random.default_rng(4)
+    moves = rng.normal(0, 0.05, n)
+    moves[5], moves[50], moves[500] = np.log(1.3), np.log(1.8), np.log(3.0)
+    panel = panel_of({"AAA": list(moves), "BBB": [0.0] * n})
+    positions = pd.DataFrame({"AAA": [0.5] * n, "BBB": [-0.5] * n},
+                             index=panel.times)
+
+    curve = tail_curve(positions, panel, thresholds=(0.25, 0.5, 1.0, 2.0))
+    # Rarer moves must be rarer, and cost more when they land.
+    assert list(curve["occurrences"]) == sorted(curve["occurrences"], reverse=True)
+    assert list(curve["cost_of_one"]) == sorted(curve["cost_of_one"])
+
+
 def test_tail_census_counts_a_hit_when_the_book_was_short_it():
     n = 100
     returns = {"AAA": [0.0] * n, "BBB": [0.0] * n}

@@ -194,6 +194,11 @@ def tail_census(positions: pd.DataFrame, panel, threshold: float = 0.65) -> dict
     Observing no blow-up means nothing until you know how many blow-ups chance
     predicted. If the expected count is a fraction of one, zero hits is what
     chance produces and the tail is untested rather than absent.
+
+    `threshold` is one point on a curve, and a single point is a constant doing
+    analytical work — the thing this repo keeps having to remove. Prefer
+    `tail_curve`, which sweeps it and reports the capital each level would cost,
+    so no one number carries the argument.
     """
     ret = panel.ret_next.reindex(positions.index)[positions.columns]
     simple = np.expm1(ret)
@@ -216,6 +221,66 @@ def tail_census(positions: pd.DataFrame, panel, threshold: float = 0.65) -> dict
         "actual_hits": int(hit.sum().sum()),
         "worst_bar_return": worst_bar,
     }
+
+
+def tail_curve(positions: pd.DataFrame, panel,
+               thresholds=(0.25, 0.50, 0.65, 1.00, 2.00)) -> pd.DataFrame:
+    """Expected tail hits across move sizes, with what each would cost.
+
+    Two questions the single-threshold census could not answer.
+
+    **How often?** A rate estimated at one move size is one point on a steeply
+    falling curve, and which point you pick decides whether the answer sounds
+    reassuring. Sweeping removes the choice — the same reason `nullres sweep`
+    prints a surface instead of its maximum.
+
+    **How bad?** The graveyard works this out by hand: "one UNFI-type event
+    (+274% in 4h) against a -0.5 weight is -137% of capital". That arithmetic is
+    mechanical and belongs in code. `cost_of_one` multiplies each move by the
+    largest short weight the book actually held, so the loss is the book's own
+    rather than an illustration, and `ruinous` marks the levels that would take
+    more than all of it.
+
+    This is as far as tail risk can honestly be taken here. It says how exposed
+    the book was and what one hit would have cost — it does not model margin,
+    liquidation price, or auto-deleveraging, none of which are in the archive.
+    """
+    ret = panel.ret_next.reindex(positions.index)[positions.columns]
+    simple = np.expm1(ret)
+    observed = int(simple.notna().sum().sum())
+    short_bars = int((positions < 0).sum().sum())
+    worst_short = float(-positions[positions < 0].min().min()) if short_bars else 0.0
+
+    rows = []
+    for level in thresholds:
+        moves = int((simple > level).sum().sum())
+        hits = int(((simple.where(positions < 0)) > level).sum().sum())
+        loss = level * worst_short
+
+        # A move size never observed does NOT have probability zero, and
+        # reporting 0.00 expected hits for the level that would ruin the book is
+        # the error this whole file exists to catch — concluding absence from
+        # non-observation. With no events in `observed` trials the rate is
+        # unknown but bounded: the rule of three puts its 95% upper limit at
+        # 3/observed. Rows with no occurrences therefore carry that bound, and
+        # `estimated` marks which is which.
+        estimated = moves > 0
+        rate = (moves / observed) if estimated else (3.0 / observed if observed else 0.0)
+        rows.append({
+            "move": level,
+            "occurrences": moves,
+            "one_in": (observed / moves) if moves else (observed / 3.0),
+            "expected_hits": rate * short_bars,
+            "actual_hits": hits,
+            "cost_of_one": loss,
+            "ruinous": loss >= 1.0,
+            "estimated": estimated,
+        })
+    out = pd.DataFrame(rows)
+    out.attrs["short_name_bars"] = short_bars
+    out.attrs["worst_short_weight"] = worst_short
+    out.attrs["observed_bars"] = observed
+    return out
 
 
 def format_report(panel, cfg, proba, positions, mean_auc: float,
@@ -285,22 +350,64 @@ def format_report(panel, cfg, proba, positions, mean_auc: float,
     lines.append(f"  contributors           + {top}")
     lines.append(f"                         - {bottom}")
 
+    curve = tail_curve(positions, panel)
     census = tail_census(positions, panel)
+    short_bars = curve.attrs["short_name_bars"]
+    weight = curve.attrs["worst_short_weight"]
+
     lines += [
         "",
-        f"  tail census (moves above +{census['threshold']:.0%} in one bar)",
-        f"    {census['extreme_moves']:,} such moves in "
-        f"{census['observed_bars']:,} symbol-bars "
-        f"(1 in {1 / census['rate']:,.0f})" if census["rate"] else
-        "    none observed",
-        f"    book held {census['short_name_bars']:,} short-name-bars, so chance "
-        f"predicts {census['expected_hits']:.2f} hits",
-        f"    actually hit {census['actual_hits']}; worst single bar "
-        f"{census['worst_bar_return']:.1%}",
+        f"  tail exposure — book held {short_bars:,} short-name-bars across "
+        f"{curve.attrs['observed_bars']:,} observed,",
+        f"  at a largest short weight of {weight:.2f} per name. Worst bar "
+        f"actually suffered: {census['worst_bar_return']:.1%}",
+        "",
+        f"    {'move':>7}{'occurred':>10}{'1 in':>12}{'expected':>10}"
+        f"{'actual':>8}{'costs':>9}",
     ]
-    if census["expected_hits"] < 1:
-        lines.append("    Expected count is below one, so observing none is what "
-                     "chance predicts.")
-        lines.append("    The tail is UNTESTED, not absent — and the engine "
-                     "models no margin.")
+    for _, row in curve.iterrows():
+        bound = "" if row["estimated"] else "<"
+        one_in = (f"{row['one_in']:,.0f}" if row["estimated"]
+                  else f">{row['one_in']:,.0f}")
+        flag = "  <- RUIN" if row["ruinous"] else ""
+        lines.append(
+            f"    {row['move']:>6.0%}{int(row['occurrences']):>10,}{one_in:>12}"
+            f"{bound + format(row['expected_hits'], '.2f'):>10}"
+            f"{int(row['actual_hits']):>8}{row['cost_of_one']:>8.0%}{flag}"
+        )
+    if not curve["estimated"].all():
+        lines.append("")
+        lines.append("    '<' marks a move size never observed here. Its rate is "
+                     "not zero — it is unknown,")
+        lines.append(f"    bounded above by the rule of three (3 events in "
+                     f"{curve.attrs['observed_bars']:,} observations).")
+
+    lines.append("")
+    ruin = curve[curve["ruinous"]]
+    if len(ruin):
+        smallest = ruin.iloc[0]
+        lines.append(
+            f"    A single +{smallest['move']:.0%} move against the largest short "
+            f"would cost {smallest['cost_of_one']:.0%} of capital — more than all "
+            f"of it."
+        )
+        if smallest["estimated"]:
+            lines.append(
+                f"    Chance predicted {smallest['expected_hits']:.2f} such hits "
+                f"and {int(smallest['actual_hits'])} occurred, so surviving is "
+                f"what the exposure predicts,\n    not evidence the risk was "
+                f"absent."
+            )
+        else:
+            lines.append(
+                f"    No move that large occurred here, so its rate is not "
+                f"measured at all — only bounded\n    ABOVE, at most "
+                f"{smallest['expected_hits']:.2f} expected hits. This sample "
+                f"cannot show you this risk; it can\n    only fail to. UNFI did "
+                f"+274% in a single 4h bar in 2021."
+            )
+    lines.append("    The tail is UNTESTED, not absent. The engine models no "
+                 "margin, so a ruinous")
+    lines.append("    bar would show as a large negative return rather than a "
+                 "liquidation.")
     return "\n".join(lines)

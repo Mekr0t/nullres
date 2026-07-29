@@ -227,6 +227,68 @@ def test_gross_exposure_is_reported_for_a_panel_book():
     assert summarize(result, 2_190)["gross_exposure"] == pytest.approx(2.0)
 
 
+def test_the_closing_trade_is_charged_not_dropped():
+    """Getting out costs money, and masking used to lose that trade.
+
+    A position still open on the last in-window bar is liquidated on the next
+    one — outside the window. Dropping it left every book unbilled for the exit
+    and undercounted its trades: buy & hold showed ONE trade for a round trip.
+    The exit already exists in the unmasked result at the configured rate, so it
+    is re-attributed rather than invented.
+    """
+    from nullres.backtest.metrics import summarize
+
+    bars = bars_from_opens([100.0] * 12)
+    cost_cfg = CostConfig(fee_bps=10.0, slippage_bps=2.0)
+
+    # Long for the whole window, flat after it — as `mask_to_oos` produces.
+    pos = pd.Series(0.0, index=bars.index)
+    pos.iloc[2:8] = 1.0
+    result = backtest(bars, pos, cost_cfg)
+
+    window = pd.Series(False, index=bars.index)
+    window.iloc[2:8] = True
+    metrics = summarize(result, 8_760, mask=window)
+
+    rate = 12 / 10_000
+    assert metrics["n_trades"] == 2, "entry and exit, not just entry"
+    # One unit in, one unit out.
+    assert summarize(result, 8_760, mask=window)["cost_drag"] == pytest.approx(
+        1 - np.exp(-2 * rate), rel=1e-6
+    )
+
+
+def test_the_exit_charge_takes_no_return_from_outside_the_window():
+    """You pay to leave; you do not earn the bar you left in."""
+    from nullres.backtest.engine import restrict
+
+    # Price jumps only AFTER the window closes.
+    bars = bars_from_opens([100.0, 100.0, 100.0, 100.0, 100.0, 200.0, 200.0])
+    pos = pd.Series(0.0, index=bars.index)
+    pos.iloc[0:3] = 1.0
+    result = backtest(bars, pos, CostConfig(fee_bps=10.0, slippage_bps=2.0))
+
+    window = pd.Series(False, index=bars.index)
+    window.iloc[0:3] = True
+    narrowed = restrict(result, window)
+
+    assert len(narrowed.returns) == 3
+    # The post-window jump must not appear as profit.
+    assert narrowed.returns.iloc[-1] < 0, "only the exit cost lands on the last bar"
+    assert narrowed.gross.sum() == pytest.approx(result.gross[window].sum())
+
+
+def test_a_window_reaching_the_end_has_nothing_to_close_against():
+    from nullres.backtest.engine import restrict
+
+    bars = bars_from_opens([100.0] * 6)
+    pos = pd.Series(1.0, index=bars.index)
+    result = backtest(bars, pos, CostConfig(fee_bps=10.0, slippage_bps=2.0))
+
+    everything = pd.Series(True, index=bars.index)
+    assert np.allclose(restrict(result, everything).cost, result.cost)
+
+
 def test_restrict_leaves_a_fully_traded_result_alone():
     from nullres.backtest.engine import restrict
 

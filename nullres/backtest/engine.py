@@ -94,19 +94,41 @@ def restrict(result: BacktestResult, mask) -> BacktestResult:
     12%. The t-statistic is immune (the factor cancels top and bottom), which is
     why this survived a test suite that checks t-stats.
 
-    One boundary note: the trade that closes the final position lands on the
-    first bar AFTER the window and is dropped here, so `n_trades` counts entries
-    within the window and not that last exit. Measuring strictly inside the
-    window is the convention; the alternative pulls a return from outside it.
+    **The closing trade is charged, not dropped.** A position still open on the
+    last in-window bar has to be liquidated, and that trade lands on the first
+    bar AFTER the window — so simply masking discarded it, leaving every book
+    unbilled for getting out and `n_trades` short by one. Buy & hold reported a
+    single trade for a round trip.
+
+    Nothing needs to be invented to fix it: the exit already exists in the
+    unmasked result, priced at the configured rate. Its cost and turnover are
+    moved onto the final in-window bar, while its RETURN stays outside — you pay
+    to leave, you do not earn the bar you left in. When the window runs to the
+    end of the frame there is no following bar and nothing to re-attribute.
     """
+    selected = np.flatnonzero(np.asarray(mask, dtype=bool))
     r = result.returns[mask]
+    turnover, cost = result.turnover[mask], result.cost[mask]
+
+    if selected.size:
+        exit_bar = selected[-1] + 1
+        if exit_bar < len(result.cost):
+            exit_cost = float(result.cost.iloc[exit_bar])
+            if exit_cost > 0:
+                turnover = turnover.copy()
+                cost = cost.copy()
+                turnover.iloc[-1] += float(result.turnover.iloc[exit_bar])
+                cost.iloc[-1] += exit_cost
+                r = r.copy()
+                r.iloc[-1] -= exit_cost
+
     return BacktestResult(
         equity=np.exp(r.cumsum()),
         returns=r,
         gross=result.gross[mask],
         position=result.position[mask],
-        turnover=result.turnover[mask],
-        cost=result.cost[mask],
+        turnover=turnover,
+        cost=cost,
     )
 
 
