@@ -40,8 +40,9 @@ iid reading, ~3.8σ after deflating for the 24-bar label overlap — and it stil
 lost 100%. It changed position 15,527 times in 47,502 bars; at 12bps that is
 18.6 in log cost. The model was never the problem.
 
-**Lesson:** run `nullres budget` first. At one-bar holds this needed 72.4%
-accuracy to break even. Nothing was ever going to close that gap.
+**Lesson:** run `nullres budget` first. At one-bar holds this needed **79.8%**
+accuracy to break even — measured from the actual distribution of moves; the
+Gaussian model flatters it to 72.4%. Nothing was ever going to close that gap.
 
 ---
 
@@ -71,7 +72,7 @@ versus 0.67% for hourly, so costs should matter less. But volatility scales as
 **duration is invariant**:
 
 ```
-1h   502 bars = 20.9 days      4h   133 bars = 22.1 days      1d   21 bars = 20.9 days
+1h   557 bars = 23.2 days      4h   140 bars = 23.3 days      1d   24 bars = 24.0 days
 ```
 
 **Lesson:** choose the timeframe for signal quality and sample size; choose the

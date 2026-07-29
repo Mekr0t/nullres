@@ -186,7 +186,8 @@ def check_null_data(run_pipeline, cfg, sharpe_limit: float = 0.5) -> Check:
 
 
 def check_survivorship(symbols, delisted, point_in_time=None,
-                       hardcoded: bool = False) -> Check:
+                       hardcoded: bool = False, last_bar=None,
+                       sample_end=None, grace_days: int = 60) -> Check:
     """Does this universe contain assets that died?
 
     Backtesting a universe chosen from what is liquid today is a test of
@@ -212,11 +213,34 @@ def check_survivorship(symbols, delisted, point_in_time=None,
     dead = set(delisted or ())
 
     if len(symbols) < 2:
+        name = symbols[0] if symbols else "none"
+        # Universe survivorship is meaningless for one asset, but a narrower
+        # question is not: did THIS instrument trade to the end of the sample?
+        # A symbol that quietly stopped is a backtest on something that no
+        # longer exists, and nothing else here would notice. Reporting a bare
+        # `n/a` skipped a check that was available all along.
+        if last_bar is not None and sample_end is not None:
+            gap = pd.Timestamp(sample_end) - pd.Timestamp(last_bar)
+            if gap > pd.Timedelta(days=grace_days):
+                return Check(
+                    "survivorship", False,
+                    f"{name} last traded {pd.Timestamp(last_bar):%Y-%m-%d}, "
+                    f"{gap.days} days before the sample ends "
+                    f"({pd.Timestamp(sample_end):%Y-%m-%d}). This instrument "
+                    f"stopped trading during the backtest",
+                )
+            return Check(
+                "survivorship", True,
+                f"{name} traded through to {pd.Timestamp(last_bar):%Y-%m-%d}, "
+                f"the end of the sample. Universe survivorship cannot apply to a "
+                f"single asset and is NOT ruled out for any multi-asset "
+                f"extension of this work",
+            )
         return Check(
             "survivorship", True,
-            f"single-symbol backtest ({symbols[0] if symbols else 'none'}) — "
-            f"survivorship does not apply, and has NOT been ruled out for any "
-            f"multi-asset extension of this work",
+            f"single-symbol backtest ({name}) — survivorship does not apply, "
+            f"and has NOT been ruled out for any multi-asset extension of this "
+            f"work",
             applicable=False,
         )
 

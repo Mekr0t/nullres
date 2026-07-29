@@ -58,6 +58,53 @@ def test_a_51_percent_model_needs_weeks_at_1h():
     assert 300 < h < 800, f"expected several hundred bars, got {h:.0f}"
 
 
+def test_gaussian_move_is_wrong_in_both_directions_so_measure_it():
+    """The error changes sign with the horizon, so no constant can fix it.
+
+    Fat tails make sigma large relative to a typical SHORT move, so the formula
+    overstates it — and the modelled accuracy requirement comes out too
+    forgiving, which is the dangerous direction for a tool that exists to kill
+    ideas. Aggregation pulls longer horizons toward normal and drift pushes them
+    past it, so the same formula understates long moves.
+    """
+    from nullres.costs import empirical_abs_move, expected_abs_move
+
+    rng = np.random.default_rng(0)
+    # Fat-tailed, driftless: Student-t has the same variance story, heavier tails.
+    fat = rng.standard_t(df=3, size=200_000) * 0.004
+
+    sigma = float(fat.std())
+    short_ratio = empirical_abs_move(fat, 1) / expected_abs_move(sigma, 1)
+    long_ratio = empirical_abs_move(fat, 200) / expected_abs_move(sigma, 200)
+
+    assert short_ratio < 0.95, "fat tails must make the typical short move smaller"
+    assert long_ratio > short_ratio, "aggregation pulls the ratio back toward 1"
+
+
+def test_empirical_breakeven_agrees_with_the_closed_form_on_gaussian_data():
+    """The bisection must reproduce the algebra when the assumption holds."""
+    from nullres.costs import breakeven_hold_empirical
+
+    rng = np.random.default_rng(1)
+    normal = rng.normal(0.0, 0.006, 400_000)
+
+    closed = breakeven_hold(float(normal.std()), 0.52, 10, 2)
+    measured = breakeven_hold_empirical(normal, 0.52, 10, 2)
+    assert measured == pytest.approx(closed, rel=0.15), (
+        f"on Gaussian data the two must agree: {closed:.0f} vs {measured:.0f}"
+    )
+
+
+def test_empirical_move_grows_with_the_horizon():
+    """Monotonicity is what makes the bisection in breakeven_hold valid."""
+    from nullres.costs import empirical_abs_move
+
+    rng = np.random.default_rng(2)
+    r = rng.normal(0.0, 0.01, 50_000)
+    moves = [empirical_abs_move(r, h) for h in (1, 5, 20, 100, 500)]
+    assert moves == sorted(moves)
+
+
 def test_budget_table_reports_duration_at_the_configured_bar_size():
     """The printed `~duration` column has to know how long a bar is.
 

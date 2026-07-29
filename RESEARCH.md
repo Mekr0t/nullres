@@ -24,22 +24,22 @@ the number of trials. It was originally wired to the count of strategies in a
 single run — six — which badly understated the exposure. Re-deflating the
 headline results honestly:
 
-| result | sharpe | deflated @ 6 | deflated @ 214 | deflated @ 343 |
+| result | sharpe | deflated @ 6 | deflated @ 214 | deflated @ 348 |
 |---|---|---|---|---|
-| xsec wide k=2 | 1.80 | 1.07 | **0.23** | **0.15** |
-| xsec wide k=5 | 1.72 | 0.99 | 0.15 | 0.07 |
-| xsec wide static_vs_alts | 1.60 | 0.87 | 0.03 | -0.05 |
-| xsec wide k=10 | 1.50 | 0.77 | -0.07 | -0.15 |
-| xsec wide k=15 | 1.20 | 0.47 | -0.37 | -0.45 |
-| xsec 11-symbol static | 0.89 | 0.16 | -0.68 | -0.76 |
-| donchian 4h | 0.59 | -0.14 | -0.98 | -1.06 |
-| BTC buy & hold, 1h | 0.50 | -0.23 | -1.07 | -1.15 |
+| xsec wide k=2 | 1.80 | 1.07 | **0.23** | **0.14** |
+| xsec wide k=5 | 1.72 | 0.99 | 0.15 | 0.06 |
+| xsec wide static_vs_alts | 1.60 | 0.87 | 0.03 | -0.06 |
+| xsec wide k=10 | 1.50 | 0.77 | -0.07 | -0.16 |
+| xsec wide k=15 | 1.20 | 0.47 | -0.37 | -0.46 |
+| xsec 11-symbol static | 0.89 | 0.16 | -0.68 | -0.77 |
+| donchian 4h | 0.59 | -0.14 | -0.98 | -1.07 |
+| BTC buy & hold, 1h | 0.50 | -0.23 | -1.07 | -1.16 |
 
 **Almost nothing in this repository survives its own multiple-testing
 correction, and what does survive is too small to trade.** The best result — the
 wide cross-sectional book, Sharpe 1.80, t-stat 3.19 — deflates to **0.23** at
-the 214 trials estimated before the ledger existed, and to **0.15** once the
-ledger's own 129 are added. Positive, and far too small to act on. Every other
+the 214 trials estimated before the ledger existed, and to **0.14** once the
+ledger's own 134 are added. Positive, and far too small to act on. Every other
 result in the table is at or below zero.
 
 An earlier version of this file reported that best figure as **0.05** and
@@ -58,8 +58,8 @@ deflation.
 Sensitivity, so the number is not taken as precise:
 
 ```
-  trials      1      6     25    100    214    343    500   1000
-  deflated  1.80   1.07   0.68   0.38   0.23   0.15   0.08  -0.03
+  trials      1      6     25    100    214    348   1000
+  deflated  1.80   1.07   0.68   0.38   0.23   0.14  -0.03
 ```
 
 The trial count is read from the run ledger rather than assumed, and
@@ -69,9 +69,9 @@ The trial count is read from the run ledger rather than assumed, and
 **A caveat on the count itself.** `prior_trials = 214` is an estimate of work
 done before the ledger existed. Reproducing those same experiments now also
 records them in the ledger, so they are counted twice — verifying a result makes
-its deflation harsher without any new hypothesis being tested. The 343 column is
+its deflation harsher without any new hypothesis being tested. The 348 column is
 therefore an upper bound and 214 a lower one. The honest reading is that the
-best result sits somewhere in **0.15 to 0.23**, and that the distinction does
+best result sits somewhere in **0.14 to 0.23**, and that the distinction does
 not matter, because 100bps of slippage takes it to 0.13 regardless.
 
 ---
@@ -124,18 +124,32 @@ two bad ones in 2024-25, on 2,200 bars.
 Break-even holding **duration** is invariant to bar size, because volatility
 scales as `sqrt(bar length)`:
 
-| timeframe | sigma/bar | break-even bars @51% | duration |
-|---|---|---|---|
-| 1h | 0.6715% | 502 | 20.9 days |
-| 4h | 1.3054% | 133 | 22.1 days |
-| 1d | 3.2912% | 21 | 20.9 days |
+| timeframe | sigma/bar | modelled bars @51% | measured bars | measured duration |
+|---|---|---|---|---|
+| 1h | 0.6715% | 502 | **557** | 23.2 days |
+| 4h | 1.3054% | 133 | **140** | 23.3 days |
+| 1d | 3.2905% | 21 | **24** | 24.0 days |
 
 Each sigma is the realised standard deviation of that timeframe's log returns.
 The 4h row previously read 1.3430%, which is `0.6715% x 2` — the sqrt-scaling
 rule, not a measurement, quoted in a table whose entire purpose is to check that
 rule against reality.
 
-Pinned by `tests/test_costs.py::test_breakeven_duration_is_invariant_to_timeframe`.
+The **modelled** column assumes Gaussian returns; the **measured** one sums the
+actual overlapping windows. The gap is not a constant that could be divided
+out — it changes sign with the horizon. On 1h bars the Gaussian overstates the
+typical move by 25% at one bar and understates it by nothing at 720, because
+aggregation pulls the distribution toward normal while drift pushes long moves
+past it. So the modelled figures are **too forgiving at short holds**, which is
+the wrong direction for a tool built to kill ideas early.
+
+The conclusion is unchanged and slightly stronger: break-even is **~23 days**
+regardless of timeframe, not ~21. Pinned by
+`tests/test_costs.py::test_breakeven_duration_is_invariant_to_timeframe`.
+
+The same correction moves the headline single-bar number. At one-bar holds the
+Gaussian says 72.4% accuracy is needed; measured, it is **79.8%**. The baseline
+was even further from viable than this document used to claim.
 
 ---
 

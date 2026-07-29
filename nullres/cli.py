@@ -231,7 +231,13 @@ def cmd_audit(cfg, args) -> int:
     checks.append(audit_mod.check_null_data(run_pipeline, cfg))
 
     print("5/5 survivorship (does this universe contain assets that died?)")
-    checks.append(audit_mod.check_survivorship([cfg.data.symbol], delisted={}))
+    # Real bars carry a real end date, so the single-asset form of the question
+    # is answerable. Synthetic bars run for however many were generated, which
+    # says nothing about any instrument, so it stays n/a there.
+    dates = ({"last_bar": ctx.bars.index[-1], "sample_end": cfg.data.end}
+             if cfg.data.source == "binance" else {})
+    checks.append(audit_mod.check_survivorship([cfg.data.symbol], delisted={},
+                                               **dates))
 
     _banner("AUDIT RESULTS")
     for check in checks:
@@ -244,9 +250,6 @@ def cmd_audit(cfg, args) -> int:
         print(f"\n{len(skipped)} of {len(checks)} check(s) did not apply to this "
               f"config, so {len(checks) - len(skipped)} actually ran and the rest "
               f"have NOT been ruled out.")
-        print("Survivorship is inapplicable to every single-symbol config in "
-              "configs/ — it\nonly has something to test through `nullres xsec`. "
-              "Do not read the audit as\nfive checks passing here; read it as four.")
     if failed:
         print(f"\n{len(failed)} CHECK(S) FAILED — results from this config are not "
               f"trustworthy until these are resolved.")
@@ -313,14 +316,11 @@ def cmd_budget(cfg, args) -> int:
     logret = np.log(bars["close"]).diff()
     sigma = float(logret.std())
 
-    # The tables below model returns as Gaussian, where the typical move is
-    # sigma*sqrt(2/pi). Crypto returns are fat-tailed, so sigma overstates the
-    # move an average bar actually makes, and every accuracy the table quotes is
-    # therefore too low. Printing both numbers puts the size of that gap in
-    # front of the reader instead of leaving it in a docstring.
-    from nullres.costs import expected_abs_move
-
-    modelled, empirical = expected_abs_move(sigma, 1), float(logret.abs().mean())
+    # The modelled columns assume Gaussian returns; the measured ones do not.
+    # The gap is not a constant that could be divided out — it changes sign with
+    # the horizon (see `costs.expected_abs_move`), which is why the table shows
+    # both rather than applying a calibration factor.
+    measured_returns = logret.dropna().to_numpy()
 
     # Bars carry no duration on their own; the break-even table is only readable
     # once they are converted to wall-clock time at this config's bar size.
@@ -328,12 +328,7 @@ def cmd_budget(cfg, args) -> int:
 
     print()
     print(budget_table(sigma, cfg.cost.fee_bps, cfg.cost.slippage_bps,
-                       hours_per_bar=hours_per_bar))
-    print(f"\nE|move| above is the Gaussian {modelled:.4%} per bar; the measured "
-          f"mean absolute\nmove is {empirical:.4%}, "
-          f"{modelled / empirical - 1:.0%} smaller. Fat tails inflate sigma "
-          f"relative to the\ntypical bar, so every accuracy in the first table "
-          f"is a FLOOR, not a target.")
+                       hours_per_bar=hours_per_bar, logret=measured_returns))
 
     print(f"\nYour config holds a position for at least {cfg.sizing.min_hold} bars "
           f"({format_duration(cfg.sizing.min_hold * hours_per_bar)}).")

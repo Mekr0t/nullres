@@ -31,12 +31,24 @@ Both live in `nullres/costs.py`. `tests/test_costs.py` asserts they are exact
 inverses of each other, because they are the same equation rearranged and it
 would be embarrassing if they disagreed.
 
-**`sqrt(2/pi)` assumes the returns are normal, and they are not.** For BTC 1h
-that factor puts `E|move|` at 0.54% while the empirical mean absolute return is
-0.40% — fat tails inflate sigma relative to the typical move, so the formula
-overstates it by about a third. The error is in the *comfortable* direction for
-a strategy: the real move is smaller than the model assumes, so the accuracy
-these tables demand is if anything too low. Read every number below as a floor.
+**`sqrt(2/pi)` assumes the returns are normal, and they are not** — so
+`nullres budget` measures the move instead, and prints both. On BTC 1h the
+formula says 0.54% per bar against a measured 0.40%.
+
+The error is not a constant you could divide out; it changes sign with the
+horizon. Fat tails inflate sigma relative to a typical SHORT move, so the model
+overstates the move and understates the accuracy you need — the flattering
+direction, at exactly the holding periods people are drawn to. Aggregation pulls
+longer horizons back toward normal and drift pushes them past it:
+
+```
+        ratio of measured to modelled E|move|, BTC 1h
+  h=1   0.751     h=24  0.816     h=168  0.871     h=720  0.994
+```
+
+`empirical_abs_move` sums the actual overlapping windows, and
+`breakeven_hold_empirical` bisects against it since no closed form survives
+dropping the assumption.
 
 ## What it says about hourly BTC
 
@@ -44,23 +56,25 @@ Measured sigma is 0.6715% per bar. At Binance spot taker (10bps) plus 2bps
 slippage, a round trip costs 0.24%.
 
 ```
-hold (bars)      E|move|    accuracy needed
-  1                0.54%      72.4%
-  6                1.31%      59.1%
-  12               1.86%      56.5%
-  24               2.62%      54.6%
-  168              6.94%      51.7%
-  720             14.38%      50.8%
+hold (bars)   E|move|   measured   modelled acc   measured acc
+  1             0.54%      0.40%       72.4%          79.8%
+  6             1.31%      1.00%       59.1%          62.0%
+  12            1.86%      1.45%       56.5%          58.3%
+  24            2.62%      2.14%       54.6%          55.6%
+  168           6.94%      6.05%       51.7%          52.0%
+  720          14.38%     14.29%       50.8%          50.8%
 ```
+
+`nullres budget` prints both columns. **Trust the measured one.**
 
 And inverted — how long you must hold, given the accuracy you actually have:
 
 ```
-accuracy      hold (bars)     ~duration
-51%                   502     20.9 days
-52%                   125      5.2 days
-55%                    20    20.1 hours
-60%                     5     5.0 hours
+accuracy    modelled bars   measured bars   measured duration
+51%                   502             557          23.2 days
+52%                   125             166           6.9 days
+55%                    20              31          31.0 hours
+60%                     5               9           9.0 hours
 ```
 
 `~duration` is bars converted at *this config's* bar size. It has to be: bars
@@ -95,12 +109,13 @@ realised standard deviation of that timeframe's log returns, not the 1h figure
 scaled up:
 
 ```
-1h    sigma 0.6715%   ->  502 bars   =  20.9 days
-4h    sigma 1.3054%   ->  133 bars   =  22.1 days
-1d    sigma 3.2912%   ->   21 bars   =  20.9 days
+1h    sigma 0.6715%   ->  557 bars   =  23.2 days
+4h    sigma 1.3054%   ->  140 bars   =  23.3 days
+1d    sigma 3.2905%   ->   24 bars   =  24.0 days
 ```
 
-**Break-even is ~21 days regardless of timeframe.** `tests/test_costs.py::
+**Break-even is ~23 days regardless of timeframe** (measured; the Gaussian
+model says ~21 and is too forgiving). `tests/test_costs.py::
 test_breakeven_duration_is_invariant_to_timeframe` pins this.
 
 The measured numbers sit slightly *below* perfect sqrt-scaling — `0.6715% × 2`

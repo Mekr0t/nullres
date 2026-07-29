@@ -60,13 +60,15 @@ most ideas before you write a feature:
 ```
 per-bar volatility  0.6715%     round-trip cost  0.2400%  (12bps/side)
 
-hold (bars)   E|move|   accuracy needed to break even
-  1            0.54%      72.4%
-  12           1.86%      56.5%
-  720         14.38%      50.8%
+hold (bars)   E|move|   measured   modelled   measured accuracy
+  1            0.54%      0.40%      72.4%        79.8%
+  12           1.86%      1.45%      56.5%        58.3%
+  720         14.38%     14.29%      50.8%        50.8%
 ```
 
-Flip your position every bar and you need to be right 72% of the time.
+Flip your position every bar and you need to be right **80%** of the time. Read
+the measured column: returns are not Gaussian, and the modelled one is too
+forgiving at exactly the short holds people are tempted by.
 
 ---
 
