@@ -97,15 +97,62 @@ def survivors_only_auc(panel, cfg) -> float | None:
     return float(np.nanmean([r["auc"] for r in reports]))
 
 
-def per_symbol_accuracy(proba: pd.Series, panel) -> pd.Series:
-    """Directional accuracy per symbol, over the bars the model scored.
+def per_symbol_accuracy(proba: pd.Series, panel) -> pd.DataFrame:
+    """Directional accuracy per symbol, with the count it rests on.
 
     Skill concentrated in one or two names is skill that has learned those
-    names, whatever the ranks pretend.
+    names, whatever the ranks pretend. But the spread only means that if every
+    symbol has enough scored bars to have an accuracy worth reading.
+
+    **The count is not decoration.** On a screened wide universe, symbols drift
+    in and out of the tradable set and some are scored on a few dozen bars. The
+    first version of this returned bare accuracies, and the 136-symbol panel
+    duly produced a spread of 0.685 — seven times the narrow panel's, and
+    entirely an artefact of thin symbols. At n=30 a coin flip reaches 0.86
+    without trying. Callers filter on `n` before quoting a spread.
+
+    **Accuracy alone is the wrong statistic here, and this is subtle.** The
+    label is "beats the cross-sectional median", so a coin that persistently
+    underperformed has a lopsided base rate of its own — say 0.85 zeros. A model
+    that learned nothing but "this one usually lags" scores 0.85 on it. High
+    per-symbol accuracy can therefore be pure unconditional drift, and reading
+    the raw spread as "skill is concentrated in these names" overstates it.
+
+    Lift over the symbol's own majority class removes that, but introduces its
+    own bias in exactly this setting: a cross-sectional model MUST rank, so at
+    every timestamp roughly half the universe is predicted low. It structurally
+    cannot predict the majority class for a symbol that beats the median 79% of
+    the time, and gets charged a large negative lift for a constraint rather
+    than a mistake.
+
+    **So the spread worth reading is in per-symbol AUC.** It is threshold-free
+    and base-rate invariant: 0.5 means the model cannot tell this symbol's good
+    bars from its bad ones, whatever its unconditional tendency and whatever the
+    ranking forced. Accuracy, base rate and lift are kept alongside because they
+    are what a reader expects to see, but the AUC column is the one that answers
+    "is the skill concentrated in particular names".
     """
+    from sklearn.metrics import roc_auc_score
+
     scored = proba.notna() & panel.y.notna()
-    hit = ((proba[scored] > 0.5) == (panel.y[scored] > 0.5)).astype(float)
-    return hit.groupby(level="symbol").mean().sort_values(ascending=False)
+    p, y = proba[scored], panel.y[scored]
+
+    hit = ((p > 0.5) == (y > 0.5)).astype(float).groupby(level="symbol")
+    mean_y = y.groupby(level="symbol").mean()
+    base = pd.concat([mean_y, 1.0 - mean_y], axis=1).max(axis=1)
+
+    def symbol_auc(group: pd.Series) -> float:
+        truth = y.loc[group.index]
+        if truth.nunique() < 2 or len(truth) < 2:
+            return float("nan")
+        return float(roc_auc_score(truth.astype(int), group))
+
+    auc = p.groupby(level="symbol").apply(symbol_auc)
+
+    out = pd.DataFrame({"auc": auc, "accuracy": hit.mean(), "base_rate": base,
+                        "n": hit.size()})
+    out["lift"] = out["accuracy"] - out["base_rate"]
+    return out.sort_values("auc", ascending=False)
 
 
 def pnl_contribution(positions: pd.DataFrame, panel) -> pd.Series:
@@ -171,7 +218,8 @@ def tail_census(positions: pd.DataFrame, panel, threshold: float = 0.65) -> dict
     }
 
 
-def format_report(panel, cfg, proba, positions, mean_auc: float) -> str:
+def format_report(panel, cfg, proba, positions, mean_auc: float,
+                  min_obs: int = 200) -> str:
     """Run every control and render it. The order is cheapest-first."""
     lines = ["", "--- verification " + "-" * 59, ""]
 
@@ -190,14 +238,41 @@ def format_report(panel, cfg, proba, positions, mean_auc: float) -> str:
         lines.append(f"  survivors only         AUC {survivors:.4f}   "
                      f"({drop:+.4f}) — {reading}")
 
-    accuracy = per_symbol_accuracy(proba, panel)
-    if len(accuracy) >= 2:
-        spread = float(accuracy.iloc[0] - accuracy.iloc[-1])
+    # Symbols scored on a handful of bars carry accuracies that swing wildly by
+    # chance, and on a screened universe there are always some. Quoting a spread
+    # across them measures the screen, not the model.
+    stats = per_symbol_accuracy(proba, panel)
+    thick = stats[(stats["n"] >= min_obs) & stats["auc"].notna()]
+    if len(thick) >= 2:
+        thin = len(stats) - len(thick)
+        note = f", {thin} thinner excluded" if thin else ""
+        auc_spread = float(thick["auc"].iloc[0] - thick["auc"].iloc[-1])
         lines.append(
-            f"  per-symbol accuracy    spread {spread:.3f}   "
-            f"best {accuracy.index[0]} {accuracy.iloc[0]:.3f}, "
-            f"worst {accuracy.index[-1]} {accuracy.iloc[-1]:.3f}"
+            f"  per-symbol skill       AUC spread {auc_spread:.3f} over "
+            f"{len(thick)} symbols with >={min_obs} scored bars{note}"
         )
+        for label, name in (("best ", thick.index[0]), ("worst", thick.index[-1])):
+            row = thick.loc[name]
+            lines.append(
+                f"                         {label} {name} AUC {row['auc']:.3f}"
+                f"  (accuracy {row['accuracy']:.3f} vs base rate "
+                f"{row['base_rate']:.3f}, lift {row['lift']:+.3f}, "
+                f"n={int(row['n']):,})"
+            )
+        above = int((thick["auc"] > 0.5).sum())
+        lines.append(
+            f"                         {above} of {len(thick)} symbols score "
+            f"above 0.5; median {thick['auc'].median():.3f}"
+        )
+        lines.append(
+            f"                         raw accuracy spread is "
+            f"{float(thick['accuracy'].max() - thick['accuracy'].min()):.3f}, "
+            f"but that is mostly each symbol's own base rate — AUC is the "
+            f"base-rate-free read"
+        )
+    elif len(stats) >= 2:
+        lines.append(f"  per-symbol skill       n/a — no symbol reached "
+                     f"{min_obs} scored bars")
 
     share = delisted_share(positions, panel)
     lines.append(f"  delisted contribution  {share:.1%} of ABSOLUTE P&L (not "

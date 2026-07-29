@@ -84,9 +84,119 @@ def test_per_symbol_accuracy_finds_the_symbol_the_model_actually_knows():
 
     panel = FakePanel(pd.DataFrame(), y=y)
     accuracy = per_symbol_accuracy(proba, panel)
-    assert accuracy["GOOD"] == pytest.approx(1.0)
-    assert accuracy["BAD"] < 0.6
-    assert accuracy.index[0] == "GOOD", "sorted best first"
+    assert accuracy.loc["GOOD", "accuracy"] == pytest.approx(1.0)
+    assert accuracy.loc["BAD", "accuracy"] < 0.6
+    assert accuracy.loc["GOOD", "n"] == 4, "the count it rests on is reported"
+    # GOOD never loses, so it has one class and no AUC to compute. That is a
+    # real state, not an error, and it must be NaN rather than a fabricated 0.5.
+    assert np.isnan(accuracy.loc["GOOD", "auc"])
+
+
+def test_per_symbol_accuracy_reports_counts_so_thin_symbols_can_be_excluded():
+    """A spread across barely-scored symbols measures the screen, not the model.
+
+    The wide panel produced a spread of 0.685 against the narrow panel's 0.093 —
+    which reads as damning until you notice the extremes were symbols scored on
+    a few dozen bars, where a coin flip reaches 0.86 without trying.
+    """
+    ts = pd.date_range("2022-01-01", periods=500, freq="4h")
+    rows, proba_rows = [], []
+    for t in ts:
+        rows.append((t, "THICK"))
+        proba_rows.append(0.9)
+    # THIN appears on only 6 bars, and happens to be right on all of them.
+    for t in ts[:6]:
+        rows.append((t, "THIN"))
+        proba_rows.append(0.9)
+
+    idx = pd.MultiIndex.from_tuples(rows, names=["ts", "symbol"])
+    proba = pd.Series(proba_rows, index=idx)
+    y = pd.Series(
+        [1.0 if s == "THIN" else float(i % 2) for i, (_, s) in enumerate(rows)],
+        index=idx,
+    )
+
+    accuracy = per_symbol_accuracy(proba, FakePanel(pd.DataFrame(), y=y))
+    assert accuracy.loc["THIN", "n"] == 6
+    assert accuracy.loc["THIN", "accuracy"] == pytest.approx(1.0)
+    assert accuracy.loc["THICK", "n"] == 500
+
+    # Filtering on n is what makes the spread meaningful.
+    thick = accuracy[accuracy["n"] >= 200]
+    assert list(thick.index) == ["THICK"], "the thin symbol must be excludable"
+
+
+def test_per_symbol_lift_strips_out_a_symbols_own_base_rate():
+    """High accuracy on a persistently-lagging coin is not skill.
+
+    The label is "beats the cross-sectional median", so a symbol that usually
+    lags has a lopsided base rate of its own. A model that learned only "this
+    one usually lags" scores that base rate without knowing anything, and the
+    raw accuracy spread reads it as concentrated skill.
+    """
+    n = 400
+    ts = pd.date_range("2022-01-01", periods=n, freq="4h")
+    idx = pd.MultiIndex.from_product([ts, ["DRIFTER", "REAL"]],
+                                     names=["ts", "symbol"])
+
+    y, proba = [], []
+    rng = np.random.default_rng(0)
+    for i in range(n):
+        # DRIFTER loses to the median 90% of the time; the model just always
+        # says "loses" and inherits that base rate for free.
+        loses = i % 10 != 0
+        y.append(0.0 if loses else 1.0)
+        proba.append(0.1)
+        # REAL is a coin flip the model calls right 70% of the time.
+        truth = float(rng.integers(0, 2))
+        y.append(truth)
+        proba.append(0.9 if (truth == 1.0) == (rng.random() < 0.7) else 0.1)
+
+    panel = FakePanel(pd.DataFrame(), y=pd.Series(y, index=idx))
+    out = per_symbol_accuracy(pd.Series(proba, index=idx), panel)
+
+    assert out.loc["DRIFTER", "accuracy"] == pytest.approx(0.9, abs=0.01)
+    assert out.loc["DRIFTER", "base_rate"] == pytest.approx(0.9, abs=0.01)
+    assert abs(out.loc["DRIFTER", "lift"]) < 0.02, "drift is not skill"
+    assert out.loc["REAL", "lift"] > 0.1, "genuine skill must still show"
+
+
+def test_per_symbol_auc_is_the_base_rate_free_read():
+    """AUC is what survives both confounds.
+
+    Raw accuracy is inflated by a symbol's own base rate. Lift corrects that but
+    penalises a cross-sectional model for a constraint it cannot escape — it
+    must rank, so it cannot predict the majority class for every symbol. AUC is
+    immune to both: 0.5 means the model cannot separate this symbol's good bars
+    from its bad ones, whatever its tendency and whatever the ranking forced.
+    """
+    n = 400
+    ts = pd.date_range("2022-01-01", periods=n, freq="4h")
+    idx = pd.MultiIndex.from_product([ts, ["DRIFTER", "REAL"]],
+                                     names=["ts", "symbol"])
+
+    y, proba = [], []
+    rng = np.random.default_rng(1)
+    for i in range(n):
+        # DRIFTER beats the median 85% of the time. The model always scores it
+        # high — right most of the time, but with no discrimination at all.
+        wins = i % 20 != 0 and i % 19 != 0
+        y.append(1.0 if wins else 0.0)
+        proba.append(0.8)          # constant: every pair ties, so AUC is 0.5
+        # REAL is balanced, and the model's score genuinely tracks the outcome.
+        truth = float(rng.integers(0, 2))
+        y.append(truth)
+        proba.append(0.75 if truth else 0.25)
+
+    out = per_symbol_accuracy(pd.Series(proba, index=idx),
+                              FakePanel(pd.DataFrame(), y=pd.Series(y, index=idx)))
+
+    assert out.loc["DRIFTER", "accuracy"] > 0.8, "base rate carries the accuracy"
+    assert out.loc["DRIFTER", "auc"] == pytest.approx(0.5), (
+        "a constant score has no discrimination whatever its hit rate"
+    )
+    assert out.loc["REAL", "auc"] > 0.95, "genuine discrimination shows"
+    assert out.index[0] == "REAL", "sorted by AUC, not accuracy"
 
 
 def test_tail_census_reports_expectation_not_just_observation():

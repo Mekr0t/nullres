@@ -2,7 +2,13 @@
 name = "nullres"
 version = "0.1.0"
 description = "Honest research harness for systematic trading strategies"
-requires-python = ">=3.11"
+# Matches the CI matrix exactly. It read ">=3.11" while nothing tested 3.11 —
+# the code would very likely have run there (tomllib is its real syntactic
+# floor), but "would very likely" is the kind of claim this repo refuses
+# everywhere else, and requirements.txt pins exact dependency versions that
+# were never resolved against it. Widen this only by adding the version to
+# .github/workflows/ci.yml first; a test asserts the two agree.
+requires-python = ">=3.13"
 dependencies = [
     "numpy>=1.26",
     "pandas>=2.1",

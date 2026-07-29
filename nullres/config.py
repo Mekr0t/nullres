@@ -1,6 +1,7 @@
 """Typed configuration loaded from TOML.
 
-TOML is read with the stdlib `tomllib` (3.11+), so config costs no dependency.
+TOML is read with the stdlib `tomllib`, so config costs no dependency. (It
+landed in 3.11; the project's tested floor is 3.13 — see `requires-python`.)
 Every experiment is fully described by one file in `configs/` — that file is the
 unit of reproducibility. If a number influenced a result, it belongs here and
 not in a function default.

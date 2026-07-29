@@ -16,10 +16,12 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      # Development happens on 3.14 and CI only ever ran 3.13, so the version
-      # the code is written against was never the version it was tested on.
-      # NOTE: pyproject declares `requires-python = ">=3.11"` and nothing tests
-      # 3.11 — either add it here or raise the floor to match reality.
+      # This matrix IS the supported range: the lowest entry must equal
+      # `requires-python` in pyproject.toml, and
+      # test_packaging.py::test_supported_python_versions_are_actually_tested
+      # fails if they drift. Development happens on 3.14 and CI only ever ran
+      # 3.13, so the version the code is written against was never the version
+      # testing it — both run now.
       matrix:
         python: ["3.13", "3.14"]
     steps:

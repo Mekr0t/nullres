@@ -302,14 +302,28 @@ folds 3-5 at 0.573 / 0.590 / 0.551. Three checks, all passed:
 
 | check | result | reading |
 |---|---|---|
-| shuffled labels | AUC 0.5042 | not a leak |
+| shuffled labels | AUC 0.4986 | not a leak |
 | survivors only | AUC 0.5480 | not just death-detection |
-| per-symbol accuracy | spread 0.093 | **skill is concentrated** |
+| per-symbol AUC | median **0.501**, 5 of 10 below 0.5 | **there is no per-symbol skill** |
 
-That last row is the crack. BTC scores 0.585, SOL 0.491. Cross-sectional ranks
-never name a symbol — but BTC is permanently the lowest-volatility,
-highest-open-interest member of this universe, so "rank 1 by low vol" and "BTC"
-are the same column. A model that learned the first has learned the second.
+That last row is the crack, and it is worse than the original version of this
+entry claimed. Panel AUC is 0.5443 while the median symbol scores 0.501 — the
+model cannot tell a given coin's good bars from its bad ones. Pooled AUC counts
+every (timestamp, symbol) pair together, so knowing only which symbols are
+persistently better already scores above chance. That is what it learned.
+
+BTC is permanently the lowest-volatility, highest-open-interest member here, so
+"rank 1 by low vol" and "BTC" are the same column — but the model did not even
+need the proxy. Its 0.585 accuracy on BTC is essentially BTC's base rate: the
+share of bars BTC beat the median at all. Take the base rate away and nothing
+remains.
+
+*This supersedes a reading based on raw per-symbol accuracy (BTC 0.585, SOL
+0.491, "skill is concentrated"). In a beats-the-median panel, accuracy is
+inflated by each symbol's own base rate, so a coin that persistently lagged
+scores high for a model that learned only the lag. AUC is base-rate free. The
+conclusion did not soften — a static ordering is exactly what `static_vs_alts`
+is, and it wins.*
 
 **And the trivial version wins.** Out-of-sample 2022-10 to 2025-12:
 
@@ -391,9 +405,21 @@ k=15 is -43.8% against the narrow book's -67.9%. Diversification did its job.
 
 | check | result |
 |---|---|
-| shuffled labels | AUC 0.5018 — not a leak |
-| delisted contribution | 2% of gross P&L — not death-detection |
+| shuffled labels | AUC 0.5015 — not a leak |
+| survivors only | AUC 0.5612 — not death-detection |
+| delisted contribution | 3.7% of absolute P&L — not a bet on dying coins |
 | contributor spread | STORJ, BNB, BAKE, BEL long; ETH, DOGE, TRB, REEF short |
+| per-symbol AUC | median **0.519**, 68 of 105 above 0.5 — **skill is distributed** |
+
+**That last row is what the narrow book never had.** Its per-symbol median was
+0.501; this one is 0.519 with two thirds of the universe above chance. The
+11-symbol result was a static ordering wearing a model. This one genuinely knows
+something about individual coins, across most of them.
+
+So the kill below is the cleanest in this file. Everything else here died of a
+signal that was not there, or was there and was really something else. This one
+is real, distributed, verified from five directions — and still loses to its own
+slippage.
 
 At the configured 8bps the k=2 book returns **212x, Sharpe 1.80, t-stat 3.19** —
 the only t-stat above 3 this project has produced.

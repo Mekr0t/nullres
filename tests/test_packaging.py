@@ -85,6 +85,37 @@ def test_no_source_file_is_gitignored():
     )
 
 
+def test_supported_python_versions_are_actually_tested():
+    """`requires-python` is a claim, and claims here have to be checked.
+
+    It declared ">=3.11" while CI tested only 3.13 — an untested compatibility
+    promise, in a repo whose entire argument is that untested promises are how
+    you end up believing things that are not true. The floor must be the lowest
+    version the matrix runs.
+    """
+    import re
+    import tomllib
+
+    with (REPO / "pyproject.toml").open("rb") as fh:
+        declared = tomllib.load(fh)["project"]["requires-python"]
+
+    workflow = (REPO / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    match = re.search(r"python:\s*\[([^\]]+)\]", workflow)
+    assert match, "could not find the python matrix in ci.yml"
+    tested = sorted(
+        tuple(int(p) for p in v.strip().strip('"\'').split("."))
+        for v in match.group(1).split(",")
+    )
+
+    floor = tuple(int(p) for p in declared.removeprefix(">=").strip().split("."))
+    assert floor == tested[0], (
+        f"pyproject claims support from {declared} but the lowest version CI "
+        f"runs is {'.'.join(map(str, tested[0]))}. Either add that version to "
+        f"the matrix in .github/workflows/ci.yml, or raise requires-python to "
+        f"match what is actually tested."
+    )
+
+
 def test_no_unaudited_fit_sites():
     """Pin the set of places that can train a model.
 

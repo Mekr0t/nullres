@@ -198,10 +198,29 @@ Out-of-sample 2022-10-30 to 2025-12-24, 6,909 bars. Mean AUC **0.5443**,
 | longshort_k2 | 170.5% | 0.59 | -78.6% | 1.05 | 165 |
 | equal_weight | 15.1% | 0.07 | -57.7% | 0.12 | 3 |
 
-Verification (`nullres xsec --verify`): shuffled labels **0.5042**;
-survivors-only **0.5480**, so not death-detection; per-symbol accuracy spread
-**0.093**, BTC 0.585 vs SOL 0.491; 7.1% of gross P&L from the two symbols that
-delisted; tail census 0.16 expected hits against 0 observed.
+Verification (`nullres xsec --verify`): shuffled labels **0.4986**;
+survivors-only **0.5480**, so not death-detection; 7.1% of absolute P&L from the
+two symbols that delisted; tail census 0.16 expected hits against 0 observed.
+
+**Per-symbol skill, and the number that explains the rest.** Panel AUC is
+0.5443. Broken down per symbol it is **0.501 at the median, with 5 of 10 symbols
+below 0.5** — best XRPUSDT 0.546, worst MATICUSDT 0.458, spread 0.088.
+
+Pooled AUC counts every (timestamp, symbol) pair together, so a model that has
+only learned *which symbols are persistently better* scores above chance from
+the cross-sectional ordering alone, without knowing when any individual symbol
+will do well. That is what these numbers say happened: there is almost no
+within-symbol timing skill anywhere in this universe.
+
+And a stable cross-sectional ordering is a static bet — which is why
+`static_vs_alts`, with no model and two trades, beats the book.
+
+This replaces an earlier reading based on raw per-symbol *accuracy* (BTC 0.585
+vs SOL 0.491). Accuracy is inflated by each symbol's own base rate: the label is
+"beats the cross-sectional median", so a coin that persistently lagged scores
+high for a model that learned nothing but the lag. BTC's 0.585 is essentially
+BTC's base rate. Per-symbol AUC is base-rate free and says the skill was never
+there to be concentrated.
 
 **The 46-vs-37 feature comparison, which matters more than it looks.** Re-run
 without open-interest features (`--set data.metrics=false`), this panel scores
@@ -247,10 +266,28 @@ The model's column collapses; the static book barely moves. What survives
 realistic alt slippage needs no model — and is hindsight, since BTC is its long
 leg only because we know how 2022-2025 ended.
 
-**Verification.** Shuffled labels 0.5018. Delisted symbols contribute 2% of
-gross P&L. Contributors spread across STORJ, BNB, BAKE, BEL long and ETH, DOGE,
-TRB, REEF short. Extreme bars are genuine market events (LUNA +346% in one 4h
-bar is the real death-spiral bounce), not gap artefacts.
+**Verification** (`nullres xsec --universe 2021-12 --top-n 40 --verify`):
+shuffled labels **0.5015**; survivors-only **0.5612**, so not death-detection;
+**3.7%** of absolute P&L from the nine symbols that delisted; contributors
+spread across STORJ, BNB, BAKE, BEL long and ETH, DOGE, TRB, REEF short. Extreme
+bars are genuine market events (LUNA +346% in one 4h bar is the real
+death-spiral bounce), not gap artefacts.
+
+**The skill here is distributed, and that is what separates this from the
+11-symbol book.** Per-symbol AUC over the 105 symbols with at least 200 scored
+bars has a **median of 0.519, with 68 of 105 above 0.5** — best ATAUSDT 0.740,
+worst OMGUSDT 0.315.
+
+Read that against §3.1, where the same decomposition gives a median of 0.501 and
+5 of 10 symbols below 0.5. The narrow book's pooled AUC was almost entirely
+cross-sectional ordering: it had learned which symbols were persistently better,
+which is a static bet wearing a model. This one has genuine within-symbol timing
+skill spread across most of the universe. Width did not just add names, it added
+a different kind of signal.
+
+Which makes the cost result below the more damning, not the less. This is the
+one book in the project whose edge is real, distributed and verified from five
+directions — and it still does not survive its own slippage.
 
 **Tail risk is untested, not absent.** No bar lost more than 11.8% and the book
 was never short a name that then exploded — but >+65% four-hour moves occur ~12
@@ -290,9 +327,14 @@ quoted from one-off analyses whose code was never committed, sitting underneath
 the strongest result in the project. That was exactly backwards, and
 `nullres/panelaudit.py` now holds them.
 
-Two of the regenerated values differ slightly from the hand-computed originals,
-because the method is now pinned rather than remembered: the shuffled-label
-control permutes **within each timestamp** so the label stays balanced in every
-regime, giving 0.5042 rather than the 0.4970 once quoted, and survivors-only
-gives 0.5480 against 0.5518. Both still say the same thing. The per-symbol
-spread (0.093, BTC 0.585 vs SOL 0.491) and the tail census reproduce exactly.
+Some regenerated values differ from the hand-computed originals, because the
+method is now pinned rather than remembered. The shuffled-label control permutes
+**within each timestamp** so the label stays balanced in every regime, and draws
+from a stream seeded by the timestamp so the answer does not depend on
+processing order: 0.4986 against the 0.4970 once quoted. Survivors-only gives
+0.5480 against 0.5518. Both still say the same thing. The tail census and the
+contributor lists reproduce exactly.
+
+The per-symbol figure changed for a substantive reason rather than a procedural
+one — it is now AUC rather than accuracy, because accuracy in a
+beats-the-median panel is inflated by each symbol's own base rate. See §3.1.

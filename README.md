@@ -189,10 +189,12 @@ have proved it.
 | cross-sectional (11) | loses to a 3-trade static bet |
 | cross-sectional (136) | **AUC 0.5575, t-stat 3.19 — dies to slippage** |
 
-That last row is the one to read. The signal is real: shuffled labels give
-0.5018, delisted symbols contribute 2% of P&L, and it survives four independent
-leak checks. It dies anyway — to costs (Sharpe 1.80 at 3bps, **0.13** at
-100bps), and it barely clears the arithmetic nobody enjoys:
+That last row is the one to read. The signal is real and it is *distributed*:
+shuffled labels give 0.5015, delisted names contribute 3.7% of absolute P&L, and
+per-symbol AUC has a median of 0.519 with 68 of 105 symbols above chance — so
+unlike the 11-symbol book, this one is not a static ordering wearing a model. It
+survives five independent checks. It dies anyway — to costs (Sharpe 1.80 at
+3bps, **0.13** at 100bps), and it barely clears the arithmetic nobody enjoys:
 
 ```
   trials      1      6     25    100    214    343   1000
