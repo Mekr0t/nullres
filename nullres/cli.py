@@ -670,7 +670,8 @@ def cmd_xsec(cfg, args) -> int:
         from nullres.panelaudit import format_report
 
         print(format_report(panel, cfg, proba, positions_by_k[ks[0]],
-                            float(np.nanmean(aucs))))
+                            float(np.nanmean(aucs)),
+                            nominal_weight=1.0 / ks[0]))
 
     print("\nRead this against static_vs_alts, not equal_weight. A model that")
     print("only learned 'the lowest-volatility member outperforms' has learned")

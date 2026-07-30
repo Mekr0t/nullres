@@ -223,6 +223,57 @@ def tail_census(positions: pd.DataFrame, panel, threshold: float = 0.65) -> dict
     }
 
 
+def concentration(positions: pd.DataFrame, nominal: float) -> dict:
+    """How often a dead leg left the book concentrated, and for how long.
+
+    `_neutralise` keeps the book dollar-neutral when a symbol delists by
+    rescaling the surviving side, so a k=2 book whose short partner dies holds
+    -1.0 in one name instead of -0.5 in two. Gross exposure does not change and
+    net stays at zero — what changes is that the move which ruins the book
+    halves, from +200% to +100%. Nine symbols delist in the wide universe, so
+    this is not hypothetical.
+
+    Keeping that behaviour is a choice: dollar neutrality is the book's defining
+    constraint, and the alternatives (halve the long side, go flat) change the
+    strategy rather than make it safer. What was missing is visibility. A
+    maximum weight on its own cannot distinguish one bar from three thousand —
+    the difference between a curiosity and the dominant risk in the book — so
+    this reports the share of bars spent concentrated and the longest unbroken
+    stretch of it.
+    """
+    longs = positions.where(positions > 0)
+    shorts = -positions.where(positions < 0)
+
+    per_bar = pd.concat([longs.max(axis=1), shorts.max(axis=1)], axis=1).max(axis=1)
+    tol = nominal * 1e-6
+    over = per_bar > nominal + tol
+    held = positions.abs().sum(axis=1) > tol          # bars with a position at all
+
+    max_short = float(shorts.max().max()) if shorts.notna().any().any() else 0.0
+    max_long = float(longs.max().max()) if longs.notna().any().any() else 0.0
+    peak = max(max_short, max_long)
+
+    # Longest unbroken stretch of concentration, in bars.
+    longest = run = 0
+    for flag in over.to_numpy():
+        run = run + 1 if flag else 0
+        longest = max(longest, run)
+
+    active = int(held.sum())
+    at_peak = int((per_bar >= peak - tol).sum()) if peak > nominal + tol else 0
+    return {
+        "nominal": nominal,
+        "max_short": max_short,
+        "max_long": max_long,
+        "bars_held": active,
+        "concentrated_bars": int((over & held).sum()),
+        "share": float((over & held).sum() / active) if active else 0.0,
+        "bars_at_peak": at_peak,
+        "share_at_peak": float(at_peak / active) if active else 0.0,
+        "longest_run": longest,
+    }
+
+
 def tail_curve(positions: pd.DataFrame, panel,
                thresholds=(0.25, 0.50, 0.65, 1.00, 2.00)) -> pd.DataFrame:
     """Expected tail hits across move sizes, with what each would cost.
@@ -284,7 +335,7 @@ def tail_curve(positions: pd.DataFrame, panel,
 
 
 def format_report(panel, cfg, proba, positions, mean_auc: float,
-                  min_obs: int = 200) -> str:
+                  min_obs: int = 200, nominal_weight: float | None = None) -> str:
     """Run every control and render it. The order is cheapest-first."""
     lines = ["", "--- verification " + "-" * 59, ""]
 
@@ -361,6 +412,32 @@ def format_report(panel, cfg, proba, positions, mean_auc: float,
         f"{curve.attrs['observed_bars']:,} observed,",
         f"  at a largest short weight of {weight:.2f} per name. Worst bar "
         f"actually suffered: {census['worst_bar_return']:.1%}",
+    ]
+
+    if nominal_weight:
+        conc = concentration(positions, nominal_weight)
+        if conc["max_short"] > conc["nominal"] * 1.000001:
+            lines += [
+                "",
+                f"    CONCENTRATION: nominal weight is {conc['nominal']:.2f} per "
+                f"name, but a delisted leg leaves the",
+                f"    survivor rescaled to keep the book dollar-neutral — peaking "
+                f"at {conc['max_short']:.2f} short "
+                f"({conc['max_long']:.2f} long).",
+                f"    Concentrated on {conc['concentrated_bars']:,} of "
+                f"{conc['bars_held']:,} bars held ({conc['share']:.1%}), "
+                f"{conc['share_at_peak']:.1%} of them at the peak,",
+                f"    longest unbroken stretch {conc['longest_run']:,} bars.",
+                f"    Gross exposure never changes; the move that ruins the book "
+                f"halves, from "
+                f"+{1 / conc['nominal'] * 100:.0f}% to "
+                f"+{1 / conc['max_short'] * 100:.0f}%.",
+            ]
+        else:
+            lines.append(f"\n    Concentration: never exceeded the nominal "
+                         f"{conc['nominal']:.2f} per name.")
+
+    lines += [
         "",
         f"    {'move':>7}{'occurred':>10}{'1 in':>12}{'expected':>10}"
         f"{'actual':>8}{'costs':>9}",

@@ -246,6 +246,99 @@ def test_tail_curve_prices_a_hit_against_the_book_s_own_weight():
     assert bool(curve.set_index("move").loc[0.5]["ruinous"]) is False
 
 
+def test_concentration_reports_duration_not_just_a_peak():
+    """A maximum weight cannot tell one bar from three thousand.
+
+    `_neutralise` keeps the book dollar-neutral when a leg delists by rescaling
+    the survivor, so a k=2 book holds -1.0 in one name instead of -0.5 in two.
+    Gross exposure is unchanged and the behaviour is deliberate — but the move
+    that ruins the book halves, so how LONG it ran that way is the risk.
+    """
+    from nullres.panelaudit import concentration
+
+    idx = pd.date_range("2022-01-01", periods=10, freq="4h")
+    # Intact for 6 bars, then S2 delists and S1 is rescaled to -1.0 for 4.
+    positions = pd.DataFrame(
+        {"L1": [0.5] * 10, "L2": [0.5] * 10,
+         "S1": [-0.5] * 6 + [-1.0] * 4,
+         "S2": [-0.5] * 6 + [0.0] * 4},
+        index=idx,
+    )
+
+    conc = concentration(positions, nominal=0.5)
+    assert conc["max_short"] == pytest.approx(1.0)
+    assert conc["concentrated_bars"] == 4
+    assert conc["share"] == pytest.approx(0.4)
+    assert conc["longest_run"] == 4
+    assert conc["bars_held"] == 10
+
+
+def test_concentration_is_silent_on_an_intact_book():
+    from nullres.panelaudit import concentration
+
+    idx = pd.date_range("2022-01-01", periods=8, freq="4h")
+    positions = pd.DataFrame({"L1": [0.5] * 8, "S1": [-0.5] * 8}, index=idx)
+    conc = concentration(positions, nominal=0.5)
+    assert conc["concentrated_bars"] == 0
+    assert conc["share"] == 0.0
+    assert conc["longest_run"] == 0
+
+
+def test_concentration_counts_the_longest_stretch_not_the_total():
+    """Two short bursts are a different risk from one long one."""
+    from nullres.panelaudit import concentration
+
+    idx = pd.date_range("2022-01-01", periods=12, freq="4h")
+    heavy = [-1.0, -1.0, -0.5, -0.5, -1.0, -1.0, -1.0, -0.5, -0.5, -0.5, -0.5, -0.5]
+    positions = pd.DataFrame({"L1": [0.5] * 12, "S1": heavy}, index=idx)
+    conc = concentration(positions, nominal=0.5)
+    assert conc["concentrated_bars"] == 5
+    assert conc["longest_run"] == 3
+
+
+def test_the_report_renders_the_concentration_warning(monkeypatch):
+    """The concentrated branch only fires on a panel with delistings.
+
+    The narrow book never loses a short leg mid-hold, so this text is only
+    reachable on the wide universe — which needs hours of downloaded metrics.
+    Stub the two expensive controls and check the rendering rather than shipping
+    a code path nobody has seen run.
+    """
+    import nullres.panelaudit as PA
+
+    n = 40
+    ts = pd.date_range("2022-01-01", periods=n, freq="4h")
+    names = ["L1", "L2", "S1", "S2"]
+    panel = panel_of({s: [0.01] * n for s in names})
+    panel.delisted = {"S2": pd.Timestamp("2022-01-05")}
+
+    idx = pd.MultiIndex.from_product([ts, names], names=["ts", "symbol"])
+    panel.y = pd.Series([1.0, 1.0, 0.0, 0.0] * n, index=idx)
+    proba = pd.Series([0.9, 0.9, 0.1, 0.1] * n, index=idx)
+
+    # A proper k=2 book: intact for half, then S2 dies and S1 is rescaled to
+    # carry the whole short side at -1.0.
+    positions = pd.DataFrame(
+        {"L1": [0.5] * n, "L2": [0.5] * n,
+         "S1": [-0.5] * 20 + [-1.0] * 20,
+         "S2": [-0.5] * 20 + [0.0] * 20},
+        index=ts,
+    )
+
+    monkeypatch.setattr(PA, "shuffled_label_auc", lambda *a, **k: 0.501)
+    monkeypatch.setattr(PA, "survivors_only_auc", lambda *a, **k: 0.55)
+
+    report = PA.format_report(panel, cfg=None, proba=proba, positions=positions,
+                              mean_auc=0.56, nominal_weight=0.5)
+
+    assert "CONCENTRATION" in report
+    assert "peaking at 1.00 short" in report
+    assert "20 of 40 bars held (50.0%)" in report
+    assert "longest unbroken stretch 20 bars" in report
+    # The ruin threshold halves: +200% at 0.5, +100% at 1.0.
+    assert "from +200% to +100%" in report
+
+
 def test_an_unobserved_move_size_is_bounded_not_zero():
     """Concluding a tail probability is zero from non-observation is the error.
 
