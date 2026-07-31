@@ -92,46 +92,79 @@ def test_budget_returns_numbers_not_text(cfg):
     assert result.hours_per_bar == pytest.approx(1.0)   # 1h config
 
 
-@pytest.mark.slow
-def test_run_returns_metrics_per_strategy(cfg):
-    result = api.run(cfg, n_trials=1, record=False, verbose=False)
-    assert isinstance(result, results.RunResult)
-    assert "buy_hold" in result.metrics
-    assert set(cfg.strategies) <= set(result.metrics)
-    for metrics in result.metrics.values():
-        assert {"sharpe", "deflated_sharpe", "t_stat", "n_trades"} <= set(metrics)
+@pytest.fixture(scope="module")
+def null_run(cfg):
+    """One pipeline run, shared by every slow test below.
 
-    # The control is a random walk, so nothing here is real. The bar is the
-    # same one `audit.check_null_data` uses — a small positive Sharpe is what
-    # noise looks like, and asserting > 0 would fail on chance alone.
-    hot = {n: m["sharpe"] for n, m in result.metrics.items()
-           if n != "buy_hold" and m["sharpe"] > 0.5}
-    assert not hot, f"strategies claiming an edge on synthetic data: {hot}"
+    These used to be three tests calling `api.run` four times between them —
+    164 seconds to assert things that differ only in what they read off the
+    same result. `test_null_control` already shares its run through a
+    module-scoped fixture; this follows it.
 
-
-@pytest.mark.slow
-def test_survivors_reads_the_deflated_sharpe_not_the_raw_one(cfg):
-    """`n_trials=1` means no deflation, so `survivors` is only meaningful
-    against a real trial count. On the random walk, two strategies show a
-    small positive raw Sharpe; the correction is what removes them."""
-    naive = api.run(cfg, n_trials=1, record=False, verbose=False)
-    corrected = api.run(cfg, n_trials=220, record=False, verbose=False)
-    assert corrected.survivors == [], corrected.survivors
-    assert len(naive.survivors) >= len(corrected.survivors)
-
-
-@pytest.mark.slow
-def test_run_with_record_false_writes_no_ledger_entry(cfg, tmp_path, monkeypatch):
-    """`record=False` has to actually stop the write.
-
-    The ledger feeds `deflated_sharpe`, so a caller re-deriving a number for a
-    plot must be able to avoid inflating its own correction.
+    `n_trials=1` means no deflation, so `deflated_sharpe == sharpe` here and
+    the correction can be applied afterwards without paying for a second run.
     """
-    monkeypatch.chdir(tmp_path)
+    return api.run(cfg, n_trials=1, record=False, verbose=False)
+
+
+@pytest.mark.slow
+def test_run_returns_a_result_per_strategy(cfg, null_run):
+    """Shape only.
+
+    Whether a random walk yields an edge is `test_null_control`'s question and
+    it asks it more thoroughly — over the same synthetic config, against the
+    same Sharpe ceiling. Repeating it here would cost a second full pipeline to
+    assert something already asserted.
+    """
+    assert isinstance(null_run, results.RunResult)
+    assert "buy_hold" in null_run.metrics
+    assert set(cfg.strategies) <= set(null_run.metrics)
+    for metrics in null_run.metrics.values():
+        assert {"sharpe", "deflated_sharpe", "t_stat", "n_trades"} <= set(metrics)
+    assert null_run.benchmark is null_run.metrics["buy_hold"]
+
+
+@pytest.mark.slow
+def test_survivors_reads_the_deflated_sharpe_not_the_raw_one(null_run):
+    """The correction is what empties the list, not the raw Sharpe.
+
+    On this random walk two strategies post a small positive Sharpe, which is
+    what noise looks like. Deflating against a real trial count removes them.
+    Re-deflating the recorded Sharpes tests exactly that, without a second run:
+    `deflated_sharpe` is a pure function of (sharpe, n_obs, bars_per_year,
+    n_trials), and only the last of those changes.
+    """
+    from nullres.backtest.metrics import deflated_sharpe
+
+    assert null_run.survivors, (
+        "undeflated, some strategy should look positive on a random walk — "
+        "otherwise this test cannot show that deflation is what removes them"
+    )
+    bars_per_year = null_run.cfg.data.bars_per_year
+    still_up = [
+        name for name, m in null_run.metrics.items()
+        if name != "buy_hold"
+        and deflated_sharpe(m["sharpe"], m["bars"], bars_per_year, 220) > 0
+    ]
+    assert not still_up, f"survived deflation at 220 trials: {still_up}"
+
+
+@pytest.mark.slow
+def test_record_false_leaves_the_result_unlogged(null_run):
+    """The ledger feeds `deflated_sharpe`, so a caller re-deriving a number for
+    a plot must be able to avoid inflating its own correction."""
+    assert null_run.record is None
+
+
+def test_record_false_never_touches_the_ledger_directory(cfg, tmp_path, monkeypatch):
+    """The mechanism behind the assertion above, tested without a pipeline."""
+    monkeypatch.chdir(tmp_path)          # cfg is loaded before this
     (tmp_path / "runs").mkdir()
-    result = api.run(cfg, n_trials=1, record=False, verbose=False)
-    assert result.record is None
+    assert api._record(cfg, "run", enabled=False) is None
     assert not list((tmp_path / "runs").glob("*.json"))
+    # ...and that the directory is only quiet because the flag was honoured.
+    assert api._record(cfg, "run", enabled=True) is not None
+    assert list((tmp_path / "runs").glob("*.json"))
 
 
 def test_ledger_view_is_data(tmp_path, monkeypatch):

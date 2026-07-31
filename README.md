@@ -82,9 +82,9 @@ The linear pipeline is the boring part. The loop around it is the product.
   Data → Features → Labels → Validation → Models → Execution → Metrics
     └────────┴─────────┴──────────┴──────────┴──────────┴─────────┘
                         │
-                  AUDIT ── point-in-time · leakage · shuffle · null control
+          AUDIT ── point-in-time · leakage · shuffle · null · survivorship
                         │
-                  ROBUSTNESS ── neighbourhood · stability · transfer · cost
+              ROBUSTNESS ── neighbourhood · stability · transfer
                         │
         ┌───────────────┼───────────────┐
      KILLED       INCONCLUSIVE       SURVIVED
@@ -117,7 +117,7 @@ yours. Every note prints how often its own gate would have fired by chance.
 | **Models** | three audited `.fit()` sites, pinned by a test — a fourth fails CI |
 | **Execution** | decide at close `t`, fill at open `t+1`, pay fees every change |
 | **Metrics** | deflated Sharpe, t-stats, cost drag, per-period breakdowns |
-| **Robustness** | four independent attempts to falsify anything that looks good |
+| **Robustness** | three independent attempts to falsify anything that looks good |
 
 Every run appends to `runs/` — config, git SHA, metrics, verdict — so results
 are reproducible rather than remembered, and a config that sits close to
@@ -142,12 +142,12 @@ against buy & hold's 0.38, on 66 untuned trades, with half the drawdown.
 ```
 $ python -m nullres robust --config configs/btc_4h.toml --strategy donchian
 
-  year     total  sharpe |     hold  hold sh |  excess
-  2021     30.3%    0.93 |    32.5%    0.72  |   +0.21
-  2022    -26.8%   -1.13 |   -64.7%   -1.70  |   +0.56
-  2023     73.8%    1.75 |   156.0%    2.24  |   -0.50
-  2024     60.9%    1.32 |   121.7%    1.53  |   -0.21
-  2025     -8.4%   -0.41 |    -6.3%   -0.15  |   -0.27
+  year       total  sharpe  |     hold  hold sh  |  excess  trades
+  2021       30.3%    0.93  |    32.5%     0.72  |    0.21       6
+  2022      -26.8%   -1.13  |   -64.7%    -1.70  |    0.56      14
+  2023       73.8%    1.75  |   156.0%     2.24  |   -0.50      15
+  2024       60.9%    1.32  |   121.7%     1.53  |   -0.21      15
+  2025       -8.4%   -0.41  |    -6.3%    -0.15  |   -0.27      16
 
 VERDICT: INCONCLUSIVE
   STABILITY INCONCLUSIVE: beat the benchmark in 2 of 5 years (40%), but mean

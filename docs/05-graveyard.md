@@ -490,7 +490,7 @@ of hits is **0.16**. Observing zero is what chance predicts. One UNFI-type event
 (+274% in 4h) against the -1.00 weight a k=2 book reaches when a short leg
 delists is -274% of capital, and the engine models no margin at all.
 
-**Lesson:** the strongest signal in the project, verified clean from four
+**Lesson:** the strongest signal in the project, verified clean from five
 directions, and it still loses to arithmetic. Cost sensitivity is not a
 footnote to a backtest — for anything trading thin instruments it *is* the
 result, which is why `nullres xsec` now prints the sweep by default.

@@ -390,18 +390,21 @@ def test_panel_positions_match_the_original_loop_exactly(top_k, rebalance,
 
 
 def test_panel_positions_exercises_the_dead_leg_rescale():
-    """The equivalence test is only worth something if deaths actually occur."""
+    """The equivalence test above is only worth something if deaths occur.
+
+    Non-vacuity only. That the book stays dollar neutral through a delisting is
+    `test_book_is_dollar_neutral_and_delisted_symbols_are_flat`, which asserts
+    it against the same `panel_positions` and also checks the dead symbol goes
+    flat — asserting it again here would be the same claim twice.
+    """
     from nullres.crosssec import panel_positions
 
     panel, proba = _panel_with_deaths()
     pos = panel_positions(proba, panel, top_k=2, rebalance=42)
-    per_name = pos.abs().max().max()
-    assert per_name > 0.5 + 1e-9, (
+    assert pos.abs().max().max() > 0.5 + 1e-9, (
         "no leg was ever rescaled above its nominal 0.5, so the branch that "
         "keeps the book dollar-neutral after a delisting went untested"
     )
-    net = pos.sum(axis=1)
-    assert np.allclose(net, 0.0, atol=1e-12), "the book must stay dollar neutral"
 
 
 def test_equal_weight_book_matches_the_original_loop_exactly():
