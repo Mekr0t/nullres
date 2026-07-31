@@ -136,6 +136,10 @@ def main(argv=None) -> int:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--only", default=None, metavar="TEXT",
                         help="run steps whose slug contains TEXT")
+    parser.add_argument("--skip", default=None, metavar="TEXT",
+                        help="skip steps whose slug contains TEXT — for running "
+                             "the wide panel on the machine that holds its "
+                             "metrics and everything else where there is RAM")
     parser.add_argument("--force", action="store_true",
                         help="redo steps that already have captured output")
     parser.add_argument("--list", action="store_true",
@@ -143,6 +147,8 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
 
     steps = [s for s in STEPS if not args.only or args.only in s[0]]
+    if args.skip:
+        steps = [s for s in steps if args.skip not in s[0]]
     if not steps:
         print(f"no step matches {args.only!r}")
         return 1
