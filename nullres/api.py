@@ -29,6 +29,7 @@ import pandas as pd
 
 from nullres import audit as audit_mod
 from nullres.config import CostConfig, RunConfig
+from nullres.errors import ConfigError
 from nullres.data import load_auxiliary, load_bars
 from nullres.pipeline import (
     ablate as ablate_ctx, prepare, run_pipeline, trials_caveat, trials_so_far,
@@ -160,6 +161,8 @@ def run(cfg: RunConfig, n_trials: int | None = None, ablate: str | None = None,
     warning = killed_warning(cfg)
     if n_trials is None:
         n_trials = trials_so_far(cfg, extra=len(cfg.strategies) + 1, command="run")
+    elif n_trials < 1:
+        raise ConfigError(f"n_trials must be at least 1, got {n_trials}")
 
     before = after = 0
     if ablate:
@@ -467,6 +470,8 @@ def xsec(cfg: RunConfig, symbols: list[str] | None = None,
     books = benchmarks(panel, cfg.cost, oos_times, rebalance=rebalance)
     if n_trials is None:
         n_trials = trials_so_far(cfg, extra=len(books) + len(ks), command="xsec")
+    elif n_trials < 1:
+        raise ConfigError(f"n_trials must be at least 1, got {n_trials}")
 
     from nullres.backtest.metrics import by_period, summarize
 

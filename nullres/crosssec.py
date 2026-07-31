@@ -49,7 +49,6 @@ UNIVERSE_2021_12 = [
     "LUNAUSDT",
 ]
 
-_INTERVAL_HOURS = {"1h": 1, "2h": 2, "4h": 4, "6h": 6, "12h": 12, "1d": 24}
 
 
 @dataclass
@@ -79,7 +78,15 @@ def load_panel(cfg, symbols: list[str] | None = None, verbose: bool = True,
     """
     symbols = symbols or UNIVERSE_2021_12
     d = cfg.data
-    interval_hours = _INTERVAL_HOURS.get(d.interval, 4)
+    # Derived rather than looked up in a second table. The table this replaced
+    # held six intervals and fell back to 4 for anything else — so a 30m or 15m
+    # config, both of which `BARS_PER_YEAR` accepts, scaled the funding charge
+    # as though its bars were 4h. That is an 8x error applied silently, in a
+    # package whose config loader refuses unknown KEYS on the grounds that a
+    # quiet default is how you spend a week backtesting something you thought
+    # you had changed. `bars_per_year` raises ConfigError on an unknown
+    # interval, so the same question now has one answer and one failure mode.
+    interval_hours = 8_760 / d.bars_per_year
 
     # Pass 1: bars only. Cheap enough to hold the whole universe in memory,
     # which is what lets the screen be computed before features are built.

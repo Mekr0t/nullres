@@ -39,15 +39,41 @@ class Strategy(Protocol):
         ...
 
 
-def cached_proba(ctx: Context, key: str, compute):
+def strategy_fingerprint(obj) -> str:
+    """A stable identity for a strategy instance, including its parameters.
+
+    `repr` will not do: these are plain classes, so the default repr embeds
+    `id(obj)` and changes every run. This reads the instance dictionary
+    instead, recursing into nested strategies — `MLMeta` holds a primary rule
+    whose own parameters decide what the model is trained on.
+    """
+    parts = []
+    for name, value in sorted(vars(obj).items()):
+        inner = (strategy_fingerprint(value)
+                 if hasattr(value, "positions") else repr(value))
+        parts.append(f"{name}={inner}")
+    return f"{type(obj).__name__}({','.join(parts)})"
+
+
+def cached_proba(ctx: Context, key: str, compute, extra: str = ""):
     """Memoise walk-forward predictions across runs that share a context.
 
-    `nullres sweep` varies only sizing, which cannot change the model's output, so
-    refitting 25 times would be pure waste. The cache key includes the label,
-    split and model config, so any change that WOULD alter the predictions
-    misses the cache instead of silently returning stale ones.
+    `nullres sweep` varies only sizing, which cannot change the model's output,
+    so refitting 25 times would be pure waste. The cache key includes the
+    label, split and model config, so any change that WOULD alter the
+    predictions misses the cache instead of silently returning stale ones.
+
+    `extra` is for anything else that feeds the feature matrix. It exists
+    because the fingerprint was incomplete: `MLMeta` appends `primary_side` to
+    the features, which depends on the parameters of its primary rule, and none
+    of those appeared in the key. Two `MLMeta` strategies with different
+    primaries, evaluated against one prepared context, would have taken each
+    other's predictions — silently, since a cache hit looks exactly like a fast
+    computation. Nothing in the shipped configs varies the primary, so this was
+    a trap rather than a live bug, which is the kind that survives longest.
     """
-    fingerprint = (repr(ctx.cfg.label), repr(ctx.cfg.split), repr(ctx.cfg.model))
+    fingerprint = (repr(ctx.cfg.label), repr(ctx.cfg.split), repr(ctx.cfg.model),
+                   extra)
     slot = ctx.diagnostics.setdefault(key, {})
     if slot.get("fingerprint") == fingerprint and "proba" in slot:
         return slot["proba"], slot.get("folds", [])

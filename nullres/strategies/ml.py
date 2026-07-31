@@ -24,7 +24,9 @@ import pandas as pd
 
 from nullres.backtest.sizing import apply_min_hold, apply_vol_target, signal_to_position
 from nullres.models.classifier import fit_predict_walk_forward
-from nullres.strategies.base import Context, cached_proba, mask_to_oos
+from nullres.strategies.base import (
+    Context, cached_proba, mask_to_oos, strategy_fingerprint,
+)
 from nullres.strategies.rules import SMACross
 
 log = logging.getLogger(__name__)
@@ -88,10 +90,12 @@ class MLMeta:
                      "time — the model's job is to tell those apart",
                      active.mean() * 100, y_meta.mean() * 100)
 
+        # The primary rule's parameters decide `primary_side`, which is a
+        # column of X — so they have to be part of the cache key.
         proba, _ = cached_proba(ctx, self.name, lambda: fit_predict_walk_forward(
             X, y_meta, ctx.label["t_end"].to_numpy(dtype=np.int64),
             cfg.split, cfg.model, verbose=ctx.verbose,
-        ))
+        ), extra=strategy_fingerprint(self.primary))
 
         # 4. Size the bet. `proba` is P(the rule is right), so it is one-sided:
         #    a low value means "skip", never "reverse". Shorting on low

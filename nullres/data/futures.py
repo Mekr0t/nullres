@@ -40,6 +40,7 @@ from pathlib import Path
 import pandas as pd
 import requests
 
+from nullres.data.cache import read_parquet_or_discard, write_parquet_atomic
 from nullres.errors import DataUnavailableError
 
 log = logging.getLogger(__name__)
@@ -91,15 +92,17 @@ def load_funding(symbol: str, start: str, end: str, cache_dir: str = "data",
     for month in months:
         cached = cache / f"{symbol}-funding-{month}.parquet"
         if cached.exists():
-            parts.append(pd.read_parquet(cached))
-            continue
+            hit = read_parquet_or_discard(cached)
+            if hit is not None:
+                parts.append(hit)
+                continue
         resp = _get(f"{FUNDING_URL}/{symbol}/{symbol}-fundingRate-{month}.zip")
         if resp is None:
             if verbose:
                 log.info("  funding miss %s", month)
             continue
         df = _read_zip_csv(resp.content)
-        df.to_parquet(cached)
+        write_parquet_atomic(df, cached)
         parts.append(df)
 
     if not parts:
@@ -150,8 +153,10 @@ def load_metrics(symbol: str, start: str, end: str, cache_dir: str = "data",
         tag = month_start.strftime("%Y-%m")
         cached = cache / f"{symbol}-metrics-{tag}.parquet"
         if cached.exists():
-            parts.append(pd.read_parquet(cached))
-            continue
+            hit = read_parquet_or_discard(cached)
+            if hit is not None:
+                parts.append(hit)
+                continue
 
         days = pd.date_range(month_start, month_start + pd.offsets.MonthEnd(0), freq="D")
         with requests.Session() as session:
@@ -167,7 +172,7 @@ def load_metrics(symbol: str, start: str, end: str, cache_dir: str = "data",
             continue
 
         month_df = pd.concat(frames, ignore_index=True)
-        month_df.to_parquet(cached)
+        write_parquet_atomic(month_df, cached)
         parts.append(month_df)
         if verbose:
             log.info("  metrics ok   %s  (%s rows from %d days)", tag,

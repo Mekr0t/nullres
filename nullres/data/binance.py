@@ -15,6 +15,7 @@ from pathlib import Path
 import pandas as pd
 import requests
 
+from nullres.data.cache import read_parquet_or_discard, write_parquet_atomic
 from nullres.errors import ConfigError, DataUnavailableError
 
 log = logging.getLogger(__name__)
@@ -44,7 +45,9 @@ def fetch_month(symbol: str, interval: str, month: str, cache_dir: str = "data",
     tag = "" if market == "spot" else f"{market}-"
     cached = cache / f"{tag}{symbol}-{interval}-{month}.parquet"
     if cached.exists():
-        return pd.read_parquet(cached)
+        hit = read_parquet_or_discard(cached)
+        if hit is not None:
+            return hit
 
     if market not in MARKET_URLS:
         raise ConfigError(f"unknown market {market!r}; choose from {sorted(MARKET_URLS)}")
@@ -77,7 +80,7 @@ def fetch_month(symbol: str, interval: str, month: str, cache_dir: str = "data",
         # Archives from ~2025 onward ship a header row; older ones do not.
         header = 0 if raw.lstrip().lower().startswith("open_time") else None
         df = pd.read_csv(io.StringIO(raw), header=header, names=KLINE_COLS)
-        df.to_parquet(cached)
+        write_parquet_atomic(df, cached)
         log.info("  ok   %s  (%s bars)", month, f"{len(df):,}")
         return df
     return None

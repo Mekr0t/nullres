@@ -75,6 +75,9 @@ def _configure_logging(level: int = logging.INFO) -> None:
 # Default counterparties for `robust`'s cross-symbol transfer test.
 TRANSFER_SYMBOLS = ("ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT")
 
+# Commands that operate on the ledger rather than on an experiment.
+NO_CONFIG = {"log"}
+
 
 def _split_symbols(raw: str | None) -> list[str]:
     return [s.strip() for s in (raw or "").split(",") if s.strip()]
@@ -246,9 +249,15 @@ def main(argv: list[str] | None = None) -> int:
 
     pd.set_option("display.width", 200)
     try:
-        cfg = load_config(args.config)
-        for override in args.set:
-            _apply_override(cfg, override)
+        # `log` reads the ledger and nothing else. Loading a config for it made
+        # `nullres log` fail on a checkout with no configs/btc_1h.toml — the
+        # one command that should work anywhere, refusing to run over a
+        # dependency it never touches.
+        cfg = None
+        if args.command not in NO_CONFIG:
+            cfg = load_config(args.config)
+            for override in args.set:
+                _apply_override(cfg, override)
         return COMMANDS[args.command](cfg, args)
     except NullresError as exc:
         # The library raises; the CLI is the only layer that decides what an

@@ -42,10 +42,26 @@ FEATURE_DOC = {
 
 
 def rsi(close: pd.Series, n: int = 14) -> pd.Series:
+    """Wilder RSI, bounded 0..100.
+
+    The zero-loss case has to be handled explicitly. `up / dn` divides by zero
+    whenever the window contains no down moves, and mapping that to NaN — the
+    obvious defensive spelling — is wrong twice over. RSI is 100 there by
+    definition, not unknown; and because `pipeline.prepare` keeps only rows
+    where EVERY feature is present, one NaN here evicts the whole bar and the
+    other 45 features with it. A silent divide-by-zero became silent sample
+    loss, concentrated in exactly the strong uptrends a momentum feature is
+    supposed to describe.
+    """
     delta = close.diff()
     up = delta.clip(lower=0).ewm(alpha=1 / n, adjust=False).mean()
     dn = (-delta.clip(upper=0)).ewm(alpha=1 / n, adjust=False).mean()
-    return 100 - 100 / (1 + up / dn.replace(0, np.nan))
+
+    out = 100 - 100 / (1 + up / dn.replace(0, np.nan))
+    # NaN comparisons are False, so the warmup rows stay NaN as intended.
+    out = out.mask((dn == 0) & (up > 0), 100.0)
+    # No movement in either direction: neutral by convention, not missing.
+    return out.mask((dn == 0) & (up == 0), 50.0)
 
 
 def atr(df: pd.DataFrame, n: int = 14) -> pd.Series:

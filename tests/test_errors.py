@@ -87,15 +87,40 @@ def test_no_library_module_prints():
 
 
 def test_importing_nullres_attaches_no_handler():
-    """A library that configures logging at import time steals the decision."""
-    import nullres  # noqa: F401
+    """A library that configures logging at import time steals the decision.
 
-    logger = logging.getLogger("nullres")
-    real = [h for h in logger.handlers
-            if not isinstance(h, logging.NullHandler)]
-    assert not real, (
-        f"importing nullres attached {real} to the 'nullres' logger. Only "
-        f"cli._configure_logging may do that."
+    Checked in a subprocess, because this is a claim about a fresh interpreter.
+    Asserting on the live logger would instead measure whatever earlier tests
+    left attached — `cli.main` legitimately adds a StreamHandler, and caplog
+    adds its own — so the in-process version passed only when it happened to
+    run first.
+    """
+    import subprocess
+    import sys
+
+    probe = (
+        "import logging, sys, nullres;"
+        "real = [h for h in logging.getLogger('nullres').handlers"
+        "        if not isinstance(h, logging.NullHandler)];"
+        "print(real)"
+    )
+    out = subprocess.run([sys.executable, "-c", probe], cwd=REPO,
+                         capture_output=True, text=True, check=True)
+    assert out.stdout.strip() == "[]", (
+        f"importing nullres attached {out.stdout.strip()} to the 'nullres' "
+        f"logger. Only cli._configure_logging may do that."
+    )
+
+
+def test_importing_nullres_prints_nothing():
+    """Import must be silent as well as handler-free."""
+    import subprocess
+    import sys
+
+    out = subprocess.run([sys.executable, "-c", "import nullres"], cwd=REPO,
+                         capture_output=True, text=True, check=True)
+    assert out.stdout == "" and out.stderr == "", (
+        f"importing nullres wrote stdout={out.stdout!r} stderr={out.stderr!r}"
     )
 
 
