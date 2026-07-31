@@ -1,0 +1,170 @@
+"""The library must not kill its host, and must not print behind its back.
+
+Two properties that no unit test covered, and that both silently regress the
+moment someone adds a `raise SystemExit` or a `print` to a library module for
+convenience during debugging. They are cheap to assert mechanically and
+expensive to notice by hand.
+"""
+
+from __future__ import annotations
+
+import ast
+import logging
+from pathlib import Path
+
+import pytest
+
+from nullres.errors import (
+    ConfigError,
+    DataUnavailableError,
+    InsufficientDataError,
+    NullresError,
+)
+
+REPO = Path(__file__).resolve().parent.parent
+PACKAGE = REPO / "nullres"
+
+# The CLI is the process boundary: it is allowed to print and to exit.
+PRESENTATION = {"nullres/cli.py"}
+
+
+def _library_modules() -> list[Path]:
+    return sorted(
+        p for p in PACKAGE.rglob("*.py")
+        if "__pycache__" not in p.parts
+        and p.relative_to(REPO).as_posix() not in PRESENTATION
+        and p.name != "__main__.py"
+    )
+
+
+def test_no_library_module_raises_systemexit():
+    """A library that raises SystemExit can terminate a notebook or a web request.
+
+    Six modules used to. `robustness.cross_symbol` had to carry
+    `except (SystemExit, ValueError)` to survive a symbol with no archive —
+    catching the interpreter's shutdown signal to keep a loop running, which is
+    what a missing exception type looks like from the inside.
+    """
+    offenders = []
+    for path in _library_modules():
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Raise) or node.exc is None:
+                continue
+            exc = node.exc
+            name = exc.func if isinstance(exc, ast.Call) else exc
+            if isinstance(name, ast.Name) and name.id == "SystemExit":
+                offenders.append(
+                    f"{path.relative_to(REPO).as_posix()}:{node.lineno}"
+                )
+    assert not offenders, (
+        "library modules raising SystemExit:\n  " + "\n  ".join(offenders) +
+        "\n\nRaise a NullresError subclass instead; nullres/cli.py maps it to "
+        "an exit code."
+    )
+
+
+def test_no_library_module_prints():
+    """Progress belongs on a logger the caller can silence, redirect, or capture.
+
+    `print` in a library writes to whatever stdout happens to be, which for an
+    importer is their output. 157 calls used to.
+    """
+    offenders = []
+    for path in _library_modules():
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                    and node.func.id == "print"):
+                offenders.append(
+                    f"{path.relative_to(REPO).as_posix()}:{node.lineno}"
+                )
+    assert not offenders, (
+        "library modules calling print():\n  " + "\n  ".join(offenders) +
+        "\n\nUse `log = logging.getLogger(__name__)` and log.info(...). Only "
+        "nullres/cli.py prints."
+    )
+
+
+def test_importing_nullres_attaches_no_handler():
+    """A library that configures logging at import time steals the decision."""
+    import nullres  # noqa: F401
+
+    logger = logging.getLogger("nullres")
+    real = [h for h in logger.handlers
+            if not isinstance(h, logging.NullHandler)]
+    assert not real, (
+        f"importing nullres attached {real} to the 'nullres' logger. Only "
+        f"cli._configure_logging may do that."
+    )
+
+
+@pytest.mark.parametrize("error", [ConfigError, DataUnavailableError,
+                                   InsufficientDataError])
+def test_every_error_is_a_nullres_error(error):
+    assert issubclass(error, NullresError)
+
+
+def test_exit_codes_are_distinct_and_nonzero():
+    """A caller scripting nullres has to be able to tell the failures apart."""
+    codes = {e: e.exit_code for e in
+             (NullresError, ConfigError, DataUnavailableError,
+              InsufficientDataError)}
+    assert all(c > 0 for c in codes.values()), codes
+    assert len(set(codes.values())) == len(codes), f"duplicate exit codes: {codes}"
+
+
+def test_config_and_insufficient_data_stay_valueerrors():
+    """Backwards compatibility: these were ValueErrors before the hierarchy."""
+    assert issubclass(ConfigError, ValueError)
+    assert issubclass(InsufficientDataError, ValueError)
+    # DataUnavailableError deliberately is NOT: nothing was wrong with the
+    # request, the bytes are simply absent.
+    assert not issubclass(DataUnavailableError, ValueError)
+
+
+def test_cli_actually_emits_progress_to_stdout(capsys):
+    """The handler must survive the NullHandler attached at import.
+
+    `_configure_logging` first read `if not logger.handlers`, which the
+    import-time NullHandler satisfies — so no StreamHandler was ever attached
+    and every progress line vanished. The command still exited 0 with a full
+    results table, so nothing failed; the output was simply gone. Moving
+    `print` to `logging` is only safe if something asserts the messages still
+    come out.
+    """
+    from nullres.cli import _configure_logging
+
+    logger = logging.getLogger("nullres")
+    saved = list(logger.handlers)
+    logger.handlers = [logging.NullHandler()]
+    try:
+        _configure_logging()
+        logging.getLogger("nullres.test").info("progress line")
+        assert "progress line" in capsys.readouterr().out
+    finally:
+        logger.handlers = saved
+
+
+def test_cli_maps_errors_to_their_exit_code():
+    """`nullres run -c does-not-exist.toml` must not traceback."""
+    from nullres.cli import main
+
+    code = main(["run", "--config", "configs/btc_1h.toml",
+                 "--set", "sizing.no_such_key=1"])
+    assert code == ConfigError.exit_code
+
+
+def test_cli_argv_does_not_leak_the_host_command_line():
+    """`main([])` must parse [] — not fall through to sys.argv.
+
+    `[] or sys.argv[1:]` skips the empty list, so an empty argv read the
+    HOST process's command line. Under pytest that meant nullres saw pytest's
+    flags. argparse raises SystemExit(2) on a missing positional, which is the
+    correct answer for an empty command line.
+    """
+    from nullres.cli import main
+
+    with pytest.raises(SystemExit) as caught:
+        main([])
+    assert caught.value.code == 2

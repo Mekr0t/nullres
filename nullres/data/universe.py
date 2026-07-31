@@ -14,6 +14,7 @@ each bar is the one you could actually have chosen at that bar.
 
 from __future__ import annotations
 
+import logging
 import re
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
@@ -21,6 +22,8 @@ from pathlib import Path
 
 import pandas as pd
 import requests
+
+log = logging.getLogger(__name__)
 
 LISTING = "https://s3-ap-northeast-1.amazonaws.com/data.binance.vision"
 PREFIXES = {
@@ -68,7 +71,7 @@ def universe_as_of(month: str, interval: str = "4h", market: str = "um",
 
     candidates = list_symbols(market)
     if verbose:
-        print(f"  {len(candidates):,} symbols in archive; testing {month}")
+        log.info("  %s symbols in archive; testing %s", f"{len(candidates):,}", month)
 
     base = KLINES[market]
 
@@ -85,7 +88,7 @@ def universe_as_of(month: str, interval: str = "4h", market: str = "um",
     cache.parent.mkdir(parents=True, exist_ok=True)
     cache.write_text("\n".join(live))
     if verbose:
-        print(f"  {len(live):,} were trading in {month}")
+        log.info("  %s were trading in %s", f"{len(live):,}", month)
     return live
 
 

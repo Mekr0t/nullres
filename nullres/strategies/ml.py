@@ -17,6 +17,8 @@ If you only take one structural idea from this repo, take the second one.
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import pandas as pd
 
@@ -24,6 +26,8 @@ from nullres.backtest.sizing import apply_min_hold, apply_vol_target, signal_to_
 from nullres.models.classifier import fit_predict_walk_forward
 from nullres.strategies.base import Context, cached_proba, mask_to_oos
 from nullres.strategies.rules import SMACross
+
+log = logging.getLogger(__name__)
 
 
 class MLDirection:
@@ -80,9 +84,9 @@ class MLMeta:
         X["primary_side"] = side
 
         if ctx.verbose:
-            print(f"  primary rule active on {active.mean():.0%} of bars, "
-                  f"right {y_meta.mean():.1%} of the time — the model's job is to "
-                  f"tell those apart")
+            log.info("  primary rule active on %.0f%% of bars, right %.1f%% of the "
+                     "time — the model's job is to tell those apart",
+                     active.mean() * 100, y_meta.mean() * 100)
 
         proba, _ = cached_proba(ctx, self.name, lambda: fit_predict_walk_forward(
             X, y_meta, ctx.label["t_end"].to_numpy(dtype=np.int64),

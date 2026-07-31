@@ -29,6 +29,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from nullres.errors import ConfigError
+
 
 def _sigma(close: pd.Series, window: int) -> pd.Series:
     """Per-bar volatility estimate, knowable at the close of each bar."""
@@ -155,5 +157,5 @@ BUILDERS = {
 
 def build_label(df: pd.DataFrame, cfg) -> pd.DataFrame:
     if cfg.kind not in BUILDERS:
-        raise ValueError(f"unknown label {cfg.kind!r}; choose from {sorted(BUILDERS)}")
+        raise ConfigError(f"unknown label {cfg.kind!r}; choose from {sorted(BUILDERS)}")
     return BUILDERS[cfg.kind](df, cfg)

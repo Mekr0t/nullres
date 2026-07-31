@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
 from pathlib import Path
 
@@ -35,7 +36,45 @@ from nullres import audit as audit_mod
 from nullres.backtest.metrics import format_table
 from nullres.config import CostConfig, load_config
 from nullres.data import load_bars
+from nullres.errors import ConfigError, NullresError
 from nullres.pipeline import prepare, run_pipeline, trials_caveat, trials_so_far
+
+
+def _configure_logging(level: int = logging.INFO) -> None:
+    """Send library log records to stdout, formatted as bare messages.
+
+    The library modules log; only this file prints. That split is what lets
+    `nullres` be imported by something with its own logging setup — a notebook,
+    a scheduler, another library — without hijacking its stdout.
+
+    A handler is attached to the `nullres` logger rather than the root, and
+    `propagate` is turned off, so configuring us never disturbs anyone else's
+    handlers. `%(message)s` and stdout are deliberate: this replaced `print`,
+    and terminal output has to come out byte-identical to what it was.
+
+    The NullHandler that `nullres/__init__.py` attaches at import does NOT
+    count as already-configured. Testing a bare `if not logger.handlers` here
+    silently swallowed every progress line — the NullHandler satisfied it, the
+    StreamHandler was never added, and the command still exited 0 with the
+    results table intact. Only a diff against the previous output caught it.
+    """
+    logger = logging.getLogger("nullres")
+    logger.setLevel(level)
+    logger.propagate = False
+    configured = any(not isinstance(h, logging.NullHandler)
+                     for h in logger.handlers)
+    if not configured:
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        logger.addHandler(handler)
+
+
+# Default counterparties for `robust`'s cross-symbol transfer test.
+TRANSFER_SYMBOLS = ("ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT")
+
+
+def _split_symbols(raw: str | None) -> list[str]:
+    return [s.strip() for s in (raw or "").split(",") if s.strip()]
 
 
 def _banner(text: str) -> None:
@@ -346,7 +385,7 @@ def cmd_robust(cfg, args) -> int:
     )
 
     strategy = args.strategy
-    symbols = [s.strip() for s in args.symbols.split(",") if s.strip()]
+    symbols = _split_symbols(args.symbols) or list(TRANSFER_SYMBOLS)
 
     _banner(f"ROBUSTNESS: {strategy} on {cfg.data.symbol} {cfg.data.interval}")
     _warn_if_already_killed(cfg)
@@ -511,8 +550,8 @@ def cmd_xsec(cfg, args) -> int:
         fit_predict_panel, load_panel, panel_positions,
     )
 
-    if args.symbols_given:
-        symbols = [s.strip() for s in args.symbols.split(",") if s.strip()]
+    if args.symbols:
+        symbols = _split_symbols(args.symbols)
     elif args.universe:
         from nullres.data.universe import universe_as_of
 
@@ -543,7 +582,7 @@ def cmd_xsec(cfg, args) -> int:
     survivorship = audit_mod.check_survivorship(
         panel.symbols, panel.delisted,
         point_in_time=symbols,
-        hardcoded=not args.universe and not args.symbols_given,
+        hardcoded=not args.universe and not args.symbols,
     )
     print(f"\n{survivorship}")
     if not survivorship.passed:
@@ -758,8 +797,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--ablate", default=None, metavar="GROUP",
                         help="run: drop a feature group (e.g. 'derivatives') "
                              "after row alignment, for a matched-sample A/B")
-    parser.add_argument("--symbols", default="ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT",
-                        help="robust: symbols for the cross-symbol transfer test")
+    # Default is None, not the list, so "was this passed?" is answerable.
+    # `cmd_xsec` needs to know, and used to find out by scanning sys.argv for a
+    # string starting with "--symbols" — which read the HOST process's command
+    # line whenever argv was empty, since `[] or sys.argv[1:]` skips the empty
+    # list. argparse already has a sentinel for this; use it.
+    parser.add_argument("--symbols", default=None,
+                        help=f"robust: symbols for the cross-symbol transfer test "
+                             f"(default: {','.join(TRANSFER_SYMBOLS)}); "
+                             f"xsec: use these instead of the fixed universe")
     parser.add_argument("--top-k", type=int, default=None,
                         help="xsec: symbols long and short per side")
     parser.add_argument("--universe", default=None, metavar="YYYY-MM",
@@ -778,23 +824,35 @@ def main(argv: list[str] | None = None) -> int:
                              "(auxiliary archives begin at different dates)")
     parser.add_argument("--set", action="append", default=[], metavar="a.b=v",
                         help="override a config value, e.g. --set sizing.min_hold=12")
+    parser.add_argument("--quiet", "-q", action="store_true",
+                        help="suppress progress logging (results still print)")
+    parser.add_argument("--debug", action="store_true",
+                        help="log everything, and re-raise errors with a traceback")
     args = parser.parse_args(argv)
 
-    # xsec defaults to the fixed 2021-12 universe unless symbols are given.
-    args.symbols_given = any(a.startswith("--symbols") for a in (argv or sys.argv[1:]))
-
-    cfg = load_config(args.config)
-    for override in args.set:
-        _apply_override(cfg, override)
+    _configure_logging(logging.WARNING if args.quiet else
+                       logging.DEBUG if args.debug else logging.INFO)
 
     pd.set_option("display.width", 200)
-    return COMMANDS[args.command](cfg, args)
+    try:
+        cfg = load_config(args.config)
+        for override in args.set:
+            _apply_override(cfg, override)
+        return COMMANDS[args.command](cfg, args)
+    except NullresError as exc:
+        # The library raises; the CLI is the only layer that decides what an
+        # error costs the process. Each error type carries its own exit code,
+        # so the mapping cannot drift from the hierarchy.
+        if args.debug:
+            raise
+        print(f"\n{type(exc).__name__}: {exc}", file=sys.stderr)
+        return exc.exit_code
 
 
 def _apply_override(cfg, spec: str) -> None:
     """Apply `section.key=value`, parsing the value as TOML would."""
     if "=" not in spec:
-        raise SystemExit(f"bad --set {spec!r}, expected section.key=value")
+        raise ConfigError(f"bad --set {spec!r}, expected section.key=value")
     path, raw = spec.split("=", 1)
     parts = path.split(".")
 
@@ -804,7 +862,7 @@ def _apply_override(cfg, spec: str) -> None:
     # override from the command line, so handle the dict branch explicitly.
     if parts[0] == "params":
         if len(parts) != 3:
-            raise SystemExit(
+            raise ConfigError(
                 f"bad --set {spec!r}: expected params.<strategy>.<key>=value"
             )
         _, strategy, key = parts
@@ -817,7 +875,7 @@ def _apply_override(cfg, spec: str) -> None:
         target = getattr(target, part)
     key = parts[-1]
     if not hasattr(target, key):
-        raise SystemExit(f"unknown config path {path!r}")
+        raise ConfigError(f"unknown config path {path!r}")
 
     setattr(target, key, _coerce(raw, getattr(target, key)))
 

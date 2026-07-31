@@ -14,6 +14,8 @@ from dataclasses import dataclass, field, fields, is_dataclass
 from pathlib import Path
 from typing import Any, get_type_hints
 
+from nullres.errors import ConfigError
+
 # Bars per year, used to annualise Sharpe and CAGR.
 BARS_PER_YEAR = {
     "1m": 525_600, "5m": 105_120, "15m": 35_040, "30m": 17_520,
@@ -39,7 +41,7 @@ class DataConfig:
     @property
     def bars_per_year(self) -> int:
         if self.interval not in BARS_PER_YEAR:
-            raise ValueError(
+            raise ConfigError(
                 f"unknown interval {self.interval!r}; "
                 f"add it to BARS_PER_YEAR in nullres/config.py"
             )
@@ -135,7 +137,7 @@ def _build(cls: type, raw: dict[str, Any], path: str = "") -> Any:
     unknown = set(raw) - known
     if unknown:
         loc = path or cls.__name__
-        raise ValueError(
+        raise ConfigError(
             f"unknown config key(s) in [{loc}]: {sorted(unknown)}; "
             f"valid keys are {sorted(known)}"
         )

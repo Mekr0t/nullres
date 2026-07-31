@@ -19,6 +19,8 @@ from typing import Iterator
 
 import numpy as np
 
+from nullres.errors import ConfigError, InsufficientDataError
+
 
 def remap_t_end(t_end: np.ndarray, keep: np.ndarray) -> np.ndarray:
     """Translate label end positions from the raw frame to the filtered frame.
@@ -43,14 +45,14 @@ def purged_walk_forward(t_end: np.ndarray, cfg) -> Iterator[tuple[np.ndarray, np
     """
     n = len(t_end)
     if n <= cfg.min_train:
-        raise ValueError(
+        raise InsufficientDataError(
             f"only {n:,} usable rows but min_train is {cfg.min_train:,}; "
             f"lower split.min_train or widen the date range"
         )
 
     fold = (n - cfg.min_train) // cfg.n_folds
     if fold < 100:
-        raise ValueError(
+        raise InsufficientDataError(
             f"folds of {fold} rows are too small to measure anything; "
             f"reduce split.n_folds or add data"
         )
@@ -66,7 +68,7 @@ def purged_walk_forward(t_end: np.ndarray, cfg) -> Iterator[tuple[np.ndarray, np
         elif cfg.scheme == "expanding":
             train_lo = 0
         else:
-            raise ValueError(f"unknown split scheme {cfg.scheme!r}")
+            raise ConfigError(f"unknown split scheme {cfg.scheme!r}")
 
         cand = np.arange(train_lo, test_start)
         # Purge: the label must have fully resolved before the embargo window.

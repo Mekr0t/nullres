@@ -484,6 +484,14 @@ def test_set_can_override_a_rule_parameter():
     _apply_override(cfg, "params.mean_reversion.entry=2.5")
     assert cfg.params["mean_reversion"] == {"entry": 2.5}
 
+    # ConfigError, not SystemExit: `_apply_override` is importable, and a bad
+    # override must not be able to terminate the process that called it.
+    # It subclasses ValueError, so callers written against the old contract
+    # that caught ValueError still work.
+    from nullres.errors import ConfigError
+
     for bad in ("params.donchian=48", "params.a.b.c=1"):
-        with pytest.raises(SystemExit, match="params"):
+        with pytest.raises(ConfigError, match="params"):
+            _apply_override(cfg, bad)
+        with pytest.raises(ValueError):
             _apply_override(cfg, bad)

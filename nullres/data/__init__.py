@@ -8,6 +8,7 @@ index, no duplicates. `load_bars` is the only entry point callers should need.
 from nullres.data.binance import fetch_month, load_binance
 from nullres.data.futures import load_funding, load_metrics
 from nullres.data.synthetic import synthetic_bars, synthetic_funding, synthetic_metrics
+from nullres.errors import ConfigError
 
 OHLCV = ["open", "high", "low", "close", "volume", "trades"]
 
@@ -18,7 +19,7 @@ def load_bars(cfg):
         return synthetic_bars(interval=cfg.interval)
     if cfg.source == "binance":
         return load_binance(cfg.symbol, cfg.interval, cfg.start, cfg.end, cfg.cache_dir)
-    raise ValueError(f"unknown data source {cfg.source!r}")
+    raise ConfigError(f"unknown data source {cfg.source!r}")
 
 
 def load_auxiliary(cfg, verbose: bool = True, bars=None):

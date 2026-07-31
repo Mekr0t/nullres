@@ -8,15 +8,20 @@ would silently shorten every rolling window across the gaps.
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import pandas as pd
 
 from nullres.backtest import backtest, summarize
 from nullres.data import load_auxiliary, load_bars
+from nullres.errors import ConfigError, InsufficientDataError
 from nullres.features import build_features
 from nullres.labels import build_label
 from nullres.strategies import Context, build as build_strategy
 from nullres.validation import describe_folds, purged_walk_forward, remap_t_end
+
+log = logging.getLogger(__name__)
 
 
 def prepare(cfg, verbose: bool = True) -> Context:
@@ -32,7 +37,7 @@ def prepare(cfg, verbose: bool = True) -> Context:
     keep = features.notna().all(axis=1) & label["sigma"].notna() & label["ret"].notna()
     keep_arr = keep.to_numpy()
     if keep_arr.sum() < 1_000:
-        raise SystemExit(
+        raise InsufficientDataError(
             f"only {int(keep_arr.sum())} usable bars after alignment — "
             f"widen the date range or shorten the feature windows"
         )
@@ -50,18 +55,18 @@ def prepare(cfg, verbose: bool = True) -> Context:
 
     if verbose:
         labelled = label["y"].notna()
-        print(f"\n{len(bars):,} usable bars | {features.shape[1]} features "
-              f"| {int(labelled.sum()):,} labelled | base rate {label['y'].mean():.3f}")
-        print(f"out-of-sample: {int(oos.sum()):,} bars "
-              f"({bars.index[oos][0]:%Y-%m-%d} .. {bars.index[oos][-1]:%Y-%m-%d})")
+        log.info("\n%s usable bars | %d features | %s labelled | base rate %.3f",
+                 f"{len(bars):,}", features.shape[1],
+                 f"{int(labelled.sum()):,}", label["y"].mean())
+        log.info("out-of-sample: %s bars (%s .. %s)", f"{int(oos.sum()):,}",
+                 f"{bars.index[oos][0]:%Y-%m-%d}", f"{bars.index[oos][-1]:%Y-%m-%d}")
         for row in describe_folds(t_end, cfg.split, bars.index):
-            print(f"  fold {row['fold']}: train {row['train']:>7,} "
-                  f"(purged {row['purged']:>4,})  test {row['test']:>6,}  "
-                  f"[{row['test_from']}..{row['test_to']}]")
+            log.info("  fold %d: train %s (purged %s)  test %s  [%s..%s]",
+                     row["fold"], f"{row['train']:>7,}", f"{row['purged']:>4,}",
+                     f"{row['test']:>6,}", row["test_from"], row["test_to"])
 
-    if verbose:
         for warning in coherence_warnings(cfg, bars):
-            print(f"  WARNING: {warning}")
+            log.warning("  WARNING: %s", warning)
 
     return Context(bars=bars, features=features, label=label, cfg=cfg,
                    oos_mask=oos_mask, verbose=verbose)
@@ -84,11 +89,11 @@ def ablate(ctx: Context, group: str) -> Context:
 
     groups = {"derivatives": set(DERIVATIVE_DOC)}
     if group not in groups:
-        raise ValueError(f"unknown feature group {group!r}; choose from {sorted(groups)}")
+        raise ConfigError(f"unknown feature group {group!r}; choose from {sorted(groups)}")
 
     drop = [c for c in ctx.features.columns if c in groups[group]]
     if not drop:
-        raise ValueError(f"no {group} features present to ablate")
+        raise ConfigError(f"no {group} features present to ablate")
     ctx.features = ctx.features.drop(columns=drop)
     ctx.diagnostics.clear()          # cached predictions are now stale
     return ctx
@@ -189,7 +194,7 @@ def run_pipeline(cfg, verbose: bool = True, ctx: Context | None = None,
 
     for name in names:
         if verbose:
-            print(f"\n-> {name}")
+            log.info("\n-> %s", name)
         strategy = build_strategy(name, cfg.params.get(name))
         positions = strategy.positions(ctx)
         result = backtest(ctx.bars, positions, cfg.cost)

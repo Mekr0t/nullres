@@ -32,12 +32,17 @@ venues, and the perp can dislocate from spot precisely when it matters most.
 from __future__ import annotations
 
 import io
+import logging
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pandas as pd
 import requests
+
+from nullres.errors import DataUnavailableError
+
+log = logging.getLogger(__name__)
 
 FUNDING_URL = "https://data.binance.vision/data/futures/um/monthly/fundingRate"
 METRICS_URL = "https://data.binance.vision/data/futures/um/daily/metrics"
@@ -91,14 +96,14 @@ def load_funding(symbol: str, start: str, end: str, cache_dir: str = "data",
         resp = _get(f"{FUNDING_URL}/{symbol}/{symbol}-fundingRate-{month}.zip")
         if resp is None:
             if verbose:
-                print(f"  funding miss {month}")
+                log.info("  funding miss %s", month)
             continue
         df = _read_zip_csv(resp.content)
         df.to_parquet(cached)
         parts.append(df)
 
     if not parts:
-        raise SystemExit(f"no funding data for {symbol} {start}..{end}")
+        raise DataUnavailableError(f"no funding data for {symbol} {start}..{end}")
 
     df = pd.concat(parts, ignore_index=True)
     # Force nanosecond resolution. pandas 3.0 infers the unit from the source,
@@ -111,8 +116,8 @@ def load_funding(symbol: str, start: str, end: str, cache_dir: str = "data",
            .drop_duplicates("ts").sort_values("ts").set_index("ts"))
     out = out.astype({"funding_rate": "float64", "funding_hours": "float64"})
     if verbose:
-        print(f"  funding: {len(out):,} settlements "
-              f"{out.index[0]:%Y-%m-%d}..{out.index[-1]:%Y-%m-%d}")
+        log.info("  funding: %s settlements %s..%s", f"{len(out):,}",
+                 f"{out.index[0]:%Y-%m-%d}", f"{out.index[-1]:%Y-%m-%d}")
     return out
 
 
@@ -158,18 +163,18 @@ def load_metrics(symbol: str, start: str, end: str, cache_dir: str = "data",
         frames = [f for f in frames if f is not None and len(f)]
         if not frames:
             if verbose:
-                print(f"  metrics miss {tag}")
+                log.info("  metrics miss %s", tag)
             continue
 
         month_df = pd.concat(frames, ignore_index=True)
         month_df.to_parquet(cached)
         parts.append(month_df)
         if verbose:
-            print(f"  metrics ok   {tag}  ({len(month_df):,} rows "
-                  f"from {len(frames)} days)")
+            log.info("  metrics ok   %s  (%s rows from %d days)", tag,
+                     f"{len(month_df):,}", len(frames))
 
     if not parts:
-        raise SystemExit(
+        raise DataUnavailableError(
             f"no metrics data for {symbol} {start}..{end}. "
             f"BTCUSDT metrics begin 2020-09; other symbols start later."
         )
@@ -181,6 +186,6 @@ def load_metrics(symbol: str, start: str, end: str, cache_dir: str = "data",
            .drop_duplicates("ts").sort_values("ts").set_index("ts"))
     out = out.astype("float64")
     if verbose:
-        print(f"  metrics: {len(out):,} rows "
-              f"{out.index[0]:%Y-%m-%d}..{out.index[-1]:%Y-%m-%d}")
+        log.info("  metrics: %s rows %s..%s", f"{len(out):,}",
+                 f"{out.index[0]:%Y-%m-%d}", f"{out.index[-1]:%Y-%m-%d}")
     return out

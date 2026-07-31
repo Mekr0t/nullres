@@ -19,6 +19,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from nullres.errors import ConfigError
+
 _FREQ = {"1m": "min", "5m": "5min", "15m": "15min", "30m": "30min",
          "1h": "h", "2h": "2h", "4h": "4h", "6h": "6h", "12h": "12h",
          "1d": "D", "1w": "W"}
@@ -125,7 +127,7 @@ def _interval_freq(interval: str) -> str:
     behaviour for a calibration instrument.
     """
     if interval not in _FREQ:
-        raise ValueError(
+        raise ConfigError(
             f"no synthetic bar spacing defined for interval {interval!r}; "
             f"add it to _FREQ in nullres/data/synthetic.py "
             f"(known: {sorted(_FREQ)})"

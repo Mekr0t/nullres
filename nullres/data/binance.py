@@ -7,12 +7,17 @@ so a re-run is offline and instant.
 from __future__ import annotations
 
 import io
+import logging
 import time
 import zipfile
 from pathlib import Path
 
 import pandas as pd
 import requests
+
+from nullres.errors import ConfigError, DataUnavailableError
+
+log = logging.getLogger(__name__)
 
 MARKET_URLS = {
     # Spot: what you hold. Cannot be shorted without a margin account.
@@ -42,7 +47,7 @@ def fetch_month(symbol: str, interval: str, month: str, cache_dir: str = "data",
         return pd.read_parquet(cached)
 
     if market not in MARKET_URLS:
-        raise ValueError(f"unknown market {market!r}; choose from {sorted(MARKET_URLS)}")
+        raise ConfigError(f"unknown market {market!r}; choose from {sorted(MARKET_URLS)}")
     base = MARKET_URLS[market]
     url = f"{base}/{symbol}/{interval}/{symbol}-{interval}-{month}.zip"
     for attempt in range(retries):
@@ -50,18 +55,18 @@ def fetch_month(symbol: str, interval: str, month: str, cache_dir: str = "data",
             resp = requests.get(url, timeout=60)
         except requests.RequestException as exc:
             if attempt == retries - 1:
-                print(f"  fail {month}: {exc}")
+                log.warning("  fail %s: %s", month, exc)
                 return None
             time.sleep(2 ** attempt)
             continue
 
         if resp.status_code == 404:
             # Month predates the listing or is not yet published. Not an error.
-            print(f"  miss {month} (404)")
+            log.info("  miss %s (404)", month)
             return None
         if resp.status_code != 200:
             if attempt == retries - 1:
-                print(f"  fail {month} (HTTP {resp.status_code})")
+                log.warning("  fail %s (HTTP %s)", month, resp.status_code)
                 return None
             time.sleep(2 ** attempt)
             continue
@@ -73,7 +78,7 @@ def fetch_month(symbol: str, interval: str, month: str, cache_dir: str = "data",
         header = 0 if raw.lstrip().lower().startswith("open_time") else None
         df = pd.read_csv(io.StringIO(raw), header=header, names=KLINE_COLS)
         df.to_parquet(cached)
-        print(f"  ok   {month}  ({len(df):,} bars)")
+        log.info("  ok   %s  (%s bars)", month, f"{len(df):,}")
         return df
     return None
 
@@ -90,7 +95,7 @@ def load_binance(symbol: str, interval: str, start: str, end: str,
             definition of survivorship bias.
     """
     if verbose:
-        print(f"Loading {symbol} {interval} {start}..{end} ({market})")
+        log.info("Loading %s %s %s..%s (%s)", symbol, interval, start, end, market)
     months = [d.strftime("%Y-%m") for d in pd.date_range(start, end, freq="MS")]
     parts = [p for p in (fetch_month(symbol, interval, m, cache_dir, market=market)
                          for m in months)
@@ -98,7 +103,7 @@ def load_binance(symbol: str, interval: str, start: str, end: str,
     if not parts:
         if not required:
             return None
-        raise SystemExit(
+        raise DataUnavailableError(
             f"No data for {symbol} {interval} {start}..{end}. "
             f"Check the symbol spelling and that the range is not in the future."
         )
@@ -148,4 +153,4 @@ def _validate(df: pd.DataFrame, interval: str, verbose: bool) -> None:
     if verbose:
         span = f"{df.index[0]:%Y-%m-%d} .. {df.index[-1]:%Y-%m-%d}"
         note = f", {missing:,} missing bars in gaps" if missing else ", no gaps"
-        print(f"  {len(df):,} bars  {span}{note}")
+        log.info("  %s bars  %s%s", f"{len(df):,}", span, note)

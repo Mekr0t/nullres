@@ -28,6 +28,7 @@ position held.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -35,7 +36,10 @@ import pandas as pd
 
 from nullres.data import load_auxiliary
 from nullres.data.binance import load_binance
+from nullres.errors import DataUnavailableError, InsufficientDataError
 from nullres.features import build_features
+
+log = logging.getLogger(__name__)
 
 # The universe as it looked in December 2021, NOT today. LUNAUSDT is in it
 # because it was, and because a survivorship-honest test needs the corpses.
@@ -91,7 +95,10 @@ def load_panel(cfg, symbols: list[str] | None = None, verbose: bool = True,
             delisted[symbol] = bars.index[-1]
 
     if len(bars_by_symbol) < 3:
-        raise SystemExit("need at least 3 symbols with data for a cross-section")
+        raise InsufficientDataError(
+            f"need at least 3 symbols with data for a cross-section, "
+            f"got {len(bars_by_symbol)} of {len(symbols)} requested"
+        )
 
     times = pd.DatetimeIndex(
         sorted(set().union(*(b.index for b in bars_by_symbol.values())))
@@ -113,9 +120,9 @@ def load_panel(cfg, symbols: list[str] | None = None, verbose: bool = True,
         # the time-varying screen below is what actually gates membership.
         keep = [s for s in bars_by_symbol if screen[s].any()]
         if verbose:
-            print(f"  liquidity screen: top {top_n} by {screen_window}-bar "
-                  f"trailing volume; {len(keep)} of {len(bars_by_symbol)} "
-                  f"symbols ever qualify")
+            log.info("  liquidity screen: top %d by %d-bar trailing volume; "
+                     "%d of %d symbols ever qualify", top_n, screen_window,
+                     len(keep), len(bars_by_symbol))
         bars_by_symbol = {s: bars_by_symbol[s] for s in keep}
         screen = screen[keep]
         log_open = log_open[keep]
@@ -134,8 +141,8 @@ def load_panel(cfg, symbols: list[str] | None = None, verbose: bool = True,
     funding_cols: dict[str, pd.Series] = {}
     wide = len(bars_by_symbol) > 15
     if verbose and wide:
-        print(f"\nbuilding features for {len(bars_by_symbol)} symbols "
-              f"(quiet for a while; progress every 10)")
+        log.info("\nbuilding features for %d symbols "
+                 "(quiet for a while; progress every 10)", len(bars_by_symbol))
 
     for done, (symbol, bars) in enumerate(bars_by_symbol.items(), start=1):
         sym_cfg = _symbol_cfg(d, symbol)
@@ -145,8 +152,8 @@ def load_panel(cfg, symbols: list[str] | None = None, verbose: bool = True,
         if verbose and wide and (done % 10 == 0 or done == len(bars_by_symbol)):
             columns = per_symbol[symbol].shape[1]
             held = sum(f.memory_usage(deep=True).sum() for f in per_symbol.values())
-            print(f"  {done:>4}/{len(bars_by_symbol)}  {columns} features  "
-                  f"{held / 1e6:,.0f} MB held", flush=True)
+            log.info("  %s/%d  %d features  %s MB held", f"{done:>4}",
+                     len(bars_by_symbol), columns, f"{held / 1e6:,.0f}")
 
         if fund is not None and len(fund):
             # Funding settles every 8h; a bar of `interval_hours` carries that
@@ -159,9 +166,9 @@ def load_panel(cfg, symbols: list[str] | None = None, verbose: bool = True,
             funding_cols[symbol] = pd.Series(0.0, index=bars.index)
 
         if verbose and len(bars_by_symbol) <= 15:
-            print(f"  {symbol:<12} {len(bars):>6,} bars  "
-                  f"{bars.index[0]:%Y-%m-%d}..{bars.index[-1]:%Y-%m-%d}"
-                  + ("   DELISTED" if symbol in delisted else ""))
+            log.info("  %-12s %s bars  %s..%s%s", symbol, f"{len(bars):>6,}",
+                     f"{bars.index[0]:%Y-%m-%d}", f"{bars.index[-1]:%Y-%m-%d}",
+                     "   DELISTED" if symbol in delisted else "")
 
     # open[t+1] -> open[t+2], per symbol. Same convention as the single-asset
     # engine: decided at close of t, filled at open of t+1.
@@ -192,8 +199,9 @@ def load_panel(cfg, symbols: list[str] | None = None, verbose: bool = True,
     ).swaplevel().sort_index()
     per_symbol.clear()          # ~400MB, no longer needed once stacked
     if verbose:
-        print(f"  panel frame: {len(frame):,} rows x {frame.shape[1]} features "
-              f"({frame.memory_usage(deep=True).sum() / 1e6:,.0f} MB)", flush=True)
+        log.info("  panel frame: %s rows x %d features (%s MB)",
+                 f"{len(frame):,}", frame.shape[1],
+                 f"{frame.memory_usage(deep=True).sum() / 1e6:,.0f}")
 
     ranked = _cross_sectional_rank(frame, screen)
     del frame                   # another ~400MB, before the label is built
@@ -238,7 +246,7 @@ def _guard_metrics_fetch(data_cfg, symbols: list[str],
 
     months = len(pd.date_range(data_cfg.start, data_cfg.end, freq="MS"))
     requests_needed = len(missing) * months * 30
-    raise SystemExit(
+    raise DataUnavailableError(
         f"\n{len(missing)} of {len(symbols)} symbols have no cached open-interest "
         f"metrics.\nFetching them needs roughly {requests_needed:,} requests "
         f"(~{requests_needed / 25_000:.0f} hours), because Binance publishes "
@@ -338,12 +346,14 @@ def time_folds(times: pd.DatetimeIndex, cfg_split, horizon: int):
     """
     n = len(times)
     if n <= cfg_split.min_train:
-        raise ValueError(
+        raise InsufficientDataError(
             f"only {n:,} timestamps but min_train is {cfg_split.min_train:,}"
         )
     fold = (n - cfg_split.min_train) // cfg_split.n_folds
     if fold < 50:
-        raise ValueError("folds too small; reduce n_folds or widen the range")
+        raise InsufficientDataError(
+            "folds too small; reduce n_folds or widen the range"
+        )
 
     for k in range(cfg_split.n_folds):
         test_start = cfg_split.min_train + k * fold
@@ -387,12 +397,12 @@ def fit_predict_panel(panel: Panel, cfg, verbose: bool = True):
                         "test_from": str(test_times[0])[:10],
                         "test_to": str(test_times[-1])[:10]})
         if verbose:
-            print(f"  fold {k}: train {train_mask.sum():>7,}  test {test_mask.sum():>6,}"
-                  f"  [{reports[-1]['test_from']}..{reports[-1]['test_to']}]"
-                  f"  auc {auc:.4f}")
+            log.info("  fold %d: train %s  test %s  [%s..%s]  auc %.4f", k,
+                     f"{train_mask.sum():>7,}", f"{test_mask.sum():>6,}",
+                     reports[-1]["test_from"], reports[-1]["test_to"], auc)
 
     if not reports:
-        raise RuntimeError("no fold produced predictions")
+        raise InsufficientDataError("no fold produced predictions")
     return proba, reports
 
 

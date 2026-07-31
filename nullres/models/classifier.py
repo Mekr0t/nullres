@@ -17,6 +17,8 @@ if one does.
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import HistGradientBoostingClassifier
@@ -24,7 +26,10 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
+from nullres.errors import ConfigError, InsufficientDataError
 from nullres.validation import purged_walk_forward, uniqueness_weights
+
+log = logging.getLogger(__name__)
 
 
 def make_model(cfg):
@@ -48,7 +53,7 @@ def make_model(cfg):
             LogisticRegression(C=1.0 / max(cfg.l2, 1e-6), max_iter=1_000,
                                random_state=cfg.seed),
         )
-    raise ValueError(f"unknown model kind {cfg.kind!r}; choose hgb or logistic")
+    raise ConfigError(f"unknown model kind {cfg.kind!r}; choose hgb or logistic")
 
 
 def fit_predict_walk_forward(
@@ -80,7 +85,7 @@ def fit_predict_walk_forward(
         classes = np.unique(y_arr[labelled])
         if classes.size < 2:
             if verbose:
-                print(f"  fold {k}: only one class in training set, skipped")
+                log.info("  fold %d: only one class in training set, skipped", k)
             continue
 
         model = make_model(model_cfg)
@@ -115,14 +120,12 @@ def fit_predict_walk_forward(
         }
         reports.append(report)
         if verbose:
-            print(
-                f"  fold {k}: train {labelled.size:>7,}  test {test.size:>6,}  "
-                f"[{report['test_from']}..{report['test_to']}]  "
-                f"acc {acc:.4f}  auc {auc:.4f}"
-            )
+            log.info("  fold %d: train %s  test %s  [%s..%s]  acc %.4f  auc %.4f",
+                     k, f"{labelled.size:>7,}", f"{test.size:>6,}",
+                     report["test_from"], report["test_to"], acc, auc)
 
     if not reports:
-        raise RuntimeError(
+        raise InsufficientDataError(
             "no fold produced predictions — check split.min_train and label config"
         )
     return proba, reports

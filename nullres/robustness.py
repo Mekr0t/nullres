@@ -49,6 +49,7 @@ import pandas as pd
 from scipy import stats as sps
 
 from nullres.backtest import backtest, by_period, summarize
+from nullres.errors import ConfigError, NullresError
 from nullres.pipeline import prepare, run_pipeline
 from nullres.strategies import build as build_strategy
 
@@ -79,7 +80,7 @@ def grid_for(strategy: str) -> tuple[dict, str]:
         return SIZING_GRIDS[strategy], "sizing"
     if strategy in DEFAULT_GRIDS:
         return DEFAULT_GRIDS[strategy], "params"
-    raise ValueError(f"no parameter grid defined for {strategy!r}")
+    raise ConfigError(f"no parameter grid defined for {strategy!r}")
 
 
 def _valid(name: str, combo: dict) -> bool:
@@ -222,7 +223,14 @@ def cross_symbol(cfg, strategy: str, symbols: list[str],
             trial.data.start = start
         try:
             results = run_pipeline(trial, verbose=False)
-        except (SystemExit, ValueError) as exc:
+        except NullresError as exc:
+            # A symbol with no archive, or too few bars to split, is a fact
+            # about that symbol — not a reason to abandon the transfer test.
+            # This used to read `except (SystemExit, ValueError)`: the data
+            # layer signalled a missing symbol by raising SystemExit, so the
+            # loop had to catch the interpreter's shutdown request to keep
+            # going. It also missed the `no fold produced predictions` case,
+            # which was a RuntimeError and took the whole battery down.
             rows.append({"symbol": symbol, "sharpe": np.nan,
                          "total_return": np.nan, "n_trades": 0,
                          "note": str(exc)[:60]})
