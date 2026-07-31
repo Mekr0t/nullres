@@ -253,28 +253,29 @@ def test_prior_trials_does_not_change_config_identity(cfg):
     assert config_distance(cfg, other)[0] == 0
 
 
-def test_cli_record_helper_accepts_every_field_commands_pass(cfg, monkeypatch, tmp_path):
-    """The CLI helper and `record_run` must not drift apart.
+def test_api_record_helper_accepts_every_field_commands_pass(cfg, monkeypatch, tmp_path):
+    """The api helper and `record_run` must not drift apart.
 
-    They did: `variants` was added to `record_run` but not to `_record`, so
+    They did: `variants` was added to `record_run` but not to the helper, so
     every `run` crashed with a TypeError *after* printing its results. The
     failure was invisible in normal output because the traceback went to stderr.
     """
     import inspect
 
-    from nullres import cli
+    from nullres import api
     from nullres.runlog import record_run as real_record
 
-    helper = set(inspect.signature(cli._record).parameters) - {"cfg", "command"}
+    helper = set(inspect.signature(api._record).parameters) - {
+        "cfg", "command", "enabled"}
     backend = set(inspect.signature(real_record).parameters) - {
         "cfg", "command", "runs_dir", "repo"}
     assert helper == backend, (
-        f"cli._record and record_run have drifted: "
+        f"api._record and record_run have drifted: "
         f"helper-only={helper - backend}, backend-only={backend - helper}"
     )
 
     monkeypatch.chdir(tmp_path)
-    cli._record(cfg, "run", metrics={"a": 1}, verdict="KILLED",
+    api._record(cfg, "run", metrics={"a": 1}, verdict="KILLED",
                 notes="n", variants=7)
     written = list((tmp_path / "runs").glob("*.json"))
     assert len(written) == 1
@@ -312,16 +313,19 @@ def test_the_ledger_does_not_dirty_its_own_repo(cfg, tmp_path, monkeypatch):
     assert _git_state(repo)[1] is True, "an actual code change must still register"
 
 
-def test_a_logging_failure_never_kills_a_completed_run(cfg, monkeypatch, capsys):
+def test_a_logging_failure_never_kills_a_completed_run(cfg, monkeypatch, caplog):
     """Bookkeeping must not destroy a result that already computed."""
-    from nullres import cli
+    import logging
+
+    from nullres import api
 
     def boom(*a, **k):
         raise RuntimeError("disk on fire")
 
     monkeypatch.setattr("nullres.runlog.record_run", boom)
-    cli._record(cfg, "run")                     # must not raise
-    assert "run log write failed" in capsys.readouterr().out
+    with caplog.at_level(logging.WARNING, logger="nullres.api"):
+        assert api._record(cfg, "run") is None      # must not raise
+    assert "run log write failed" in caplog.text
 
 
 def test_corrupt_records_are_skipped_not_fatal(tmp_path):

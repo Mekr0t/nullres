@@ -155,9 +155,23 @@ def _build(cls: type, raw: dict[str, Any], path: str = "") -> Any:
 
 
 def load_config(path: str | Path) -> RunConfig:
+    """Load and validate one experiment's config.
+
+    A missing or malformed file is a ConfigError, not a traceback. `nullres run
+    -c typo.toml` used to end in a raw FileNotFoundError from deep inside
+    pathlib, which tells the reader where Python gave up rather than what they
+    got wrong.
+    """
     path = Path(path)
-    with path.open("rb") as fh:
-        raw = tomllib.load(fh)
+    try:
+        with path.open("rb") as fh:
+            raw = tomllib.load(fh)
+    except FileNotFoundError:
+        raise ConfigError(f"no config file at {path}") from None
+    except IsADirectoryError:
+        raise ConfigError(f"{path} is a directory, not a config file") from None
+    except tomllib.TOMLDecodeError as exc:
+        raise ConfigError(f"{path} is not valid TOML: {exc}") from exc
     cfg = _build(RunConfig, raw)
     if cfg.name == "unnamed":
         cfg.name = path.stem

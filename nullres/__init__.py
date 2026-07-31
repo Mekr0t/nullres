@@ -16,15 +16,56 @@ consumer sees silence, and `nullres.cli` attaches a stdout handler when the
 command line is the caller. To see it from your own code:
 
     logging.basicConfig(level=logging.INFO)
+
+The public API is one function per command, each returning a result object
+rather than printing:
+
+    from nullres import load_config, run
+    result = run(load_config("configs/btc_4h.toml"))
+    result.metrics["donchian"]["sharpe"]
+    result.survivors                     # deflated Sharpe still above zero
+
+`nullres.report` turns any of those result objects back into the text the
+terminal shows, so the CLI is a thin layer over the two and nothing is
+reachable from the command line that is not reachable from Python.
 """
 
 import logging
 
+from nullres.api import (
+    ablate,
+    audit,
+    budget,
+    fetch,
+    feature_importance,
+    killed_warning,
+    ledger,
+    resolve_universe,
+    robust,
+    run,
+    sweep,
+    verify_panel,
+    xsec,
+)
+from nullres.config import RunConfig, load_config
 from nullres.errors import (
     ConfigError,
     DataUnavailableError,
     InsufficientDataError,
     NullresError,
+)
+from nullres.results import (
+    AblationResult,
+    AuditResult,
+    BudgetResult,
+    FeatureImportanceResult,
+    FetchResult,
+    LedgerView,
+    PanelVerification,
+    RobustnessResult,
+    RunResult,
+    SweepResult,
+    XsecResult,
 )
 
 __version__ = "0.1.0"
@@ -36,8 +77,17 @@ logging.getLogger(__name__).addHandler(logging.NullHandler())
 
 __all__ = [
     "__version__",
-    "NullresError",
-    "ConfigError",
-    "DataUnavailableError",
+    # config
+    "load_config", "RunConfig",
+    # commands
+    "fetch", "ledger", "budget", "run", "audit", "sweep", "robust", "ablate",
+    "feature_importance", "xsec", "resolve_universe", "verify_panel",
+    "killed_warning",
+    # results
+    "RunResult", "AuditResult", "BudgetResult", "SweepResult",
+    "RobustnessResult", "AblationResult", "PanelVerification", "XsecResult",
+    "FeatureImportanceResult", "FetchResult", "LedgerView",
+    # errors
+    "NullresError", "ConfigError", "DataUnavailableError",
     "InsufficientDataError",
 ]

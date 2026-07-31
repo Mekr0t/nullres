@@ -155,6 +155,20 @@ def test_cli_maps_errors_to_their_exit_code():
     assert code == ConfigError.exit_code
 
 
+@pytest.mark.parametrize("path,expect", [
+    ("configs/does-not-exist.toml", "no config file"),
+    ("README.md", "not valid TOML"),
+])
+def test_a_bad_config_path_is_a_config_error_not_a_traceback(path, expect):
+    """`nullres run -c typo.toml` used to end in a raw FileNotFoundError from
+    inside pathlib, which tells the reader where Python gave up rather than
+    what they got wrong."""
+    from nullres.config import load_config
+
+    with pytest.raises(ConfigError, match=expect):
+        load_config(path)
+
+
 def test_cli_argv_does_not_leak_the_host_command_line():
     """`main([])` must parse [] — not fall through to sys.argv.
 
