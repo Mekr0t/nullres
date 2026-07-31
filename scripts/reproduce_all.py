@@ -22,10 +22,11 @@ the end, and the exit code is non-zero if any occurred.
 
 Two steps deserve comment.
 
-  THE SWEEPS produce no figure anyone quotes. They are here because
-  `prior_trials = 214` estimates exploration that includes two 25-cell threshold
-  sweeps, and `prior_trials` can only honestly be reduced once the ledger
-  contains the work it estimates. Skipping them leaves that decision blocked.
+  THE SWEEPS produce no figure anyone quotes. They are here because the trial
+  count that deflates every Sharpe has to contain them: two 25-cell sweeps are
+  fifty looks at the data whether or not a number from them is ever published.
+  They are what let `prior_trials` be retired to 0 rather than estimated, and
+  skipping them would put the ledger back below the exposure it describes.
 
   THE WIDE PANEL needs open-interest metrics for ~123 symbols, which is a
   multi-hour download — see `scripts/precache_metrics.py`. Without them it will
@@ -43,66 +44,77 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 OUT = REPO / "reports" / "reproduce"
 
-# (slug, why it exists, argv after `-m nullres`, rough minutes)
+# (slug, why it exists, argv after `-m nullres`, minutes)
+#
+# The last field is MEASURED, not guessed, and rounded up to the minute. It was
+# guessed once and never revisited: the batteries were estimated at 6-8 minutes
+# against an actual 8-14 SECONDS, because those numbers predate the context
+# reuse that stopped `robust` calling `prepare()` per grid cell. The total came
+# out 99 minutes against a real 19.
+#
+# That would be harmless if it erred one way, but it did not. The two xsec steps
+# were the only ones UNDER-estimated — 4 minutes against 8, 3 against 5 — so the
+# headline was three times too pessimistic while the step you actually sit and
+# wait for was twice too optimistic. Re-measure after any change that moves them.
 STEPS: list[tuple[str, str, list[str], int]] = [
     # --- the harness is not lying to us -------------------------------------
-    ("audit-1h", "leak checks, 1h", ["audit", "-c", "configs/btc_1h.toml"], 3),
-    ("audit-4h", "leak checks, 4h", ["audit", "-c", "configs/btc_4h.toml"], 2),
+    ("audit-1h", "leak checks, 1h", ["audit", "-c", "configs/btc_1h.toml"], 1),
+    ("audit-4h", "leak checks, 4h", ["audit", "-c", "configs/btc_4h.toml"], 1),
     ("audit-1d", "leak checks, 1d", ["audit", "-c", "configs/btc_1d.toml"], 1),
     ("audit-deriv", "leak checks, derivatives",
-     ["audit", "-c", "configs/btc_4h_deriv.toml"], 2),
+     ["audit", "-c", "configs/btc_4h_deriv.toml"], 1),
     ("null-run", "the calibration control: no edge in a random walk",
-     ["run", "-c", "configs/null.toml"], 2),
+     ["run", "-c", "configs/null.toml"], 1),
     ("null-audit", "the same control through the CLI",
      ["audit", "-c", "configs/null.toml"], 2),
 
     # --- RESEARCH section 1: single-asset tables ----------------------------
-    ("run-1h", "RESEARCH §1, 1h table", ["run", "-c", "configs/btc_1h.toml"], 5),
-    ("run-4h", "RESEARCH §1, 4h table", ["run", "-c", "configs/btc_4h.toml"], 2),
+    ("run-1h", "RESEARCH §1, 1h table", ["run", "-c", "configs/btc_1h.toml"], 1),
+    ("run-4h", "RESEARCH §1, 4h table", ["run", "-c", "configs/btc_4h.toml"], 1),
     ("run-1d", "RESEARCH §1, 1d table", ["run", "-c", "configs/btc_1d.toml"], 1),
     ("run-deriv", "derivatives config, all strategies",
-     ["run", "-c", "configs/btc_4h_deriv.toml"], 2),
+     ["run", "-c", "configs/btc_4h_deriv.toml"], 1),
     ("budget-1h", "the cost budget, modelled vs measured",
      ["budget", "-c", "configs/btc_1h.toml"], 1),
     ("budget-4h", "cost budget at 4h", ["budget", "-c", "configs/btc_4h.toml"], 1),
     ("budget-1d", "cost budget at 1d", ["budget", "-c", "configs/btc_1d.toml"], 1),
     ("features-4h", "permutation importance, 4h",
-     ["features", "-c", "configs/btc_4h.toml"], 3),
+     ["features", "-c", "configs/btc_4h.toml"], 1),
 
     # --- multiple-testing exposure the ledger must contain ------------------
     ("sweep-1h", "25-cell threshold sweep (for the ledger, not for a figure)",
-     ["sweep", "-c", "configs/btc_1h.toml", "--strategy", "ml_meta"], 12),
+     ["sweep", "-c", "configs/btc_1h.toml", "--strategy", "ml_meta"], 1),
     ("sweep-4h", "25-cell threshold sweep at 4h",
-     ["sweep", "-c", "configs/btc_4h.toml", "--strategy", "ml_meta"], 6),
+     ["sweep", "-c", "configs/btc_4h.toml", "--strategy", "ml_meta"], 1),
 
     # --- RESEARCH section 2: derivatives -----------------------------------
     ("ablate-deriv", "RESEARCH §2, matched-sample ablation",
-     ["ablate", "-c", "configs/btc_4h_deriv.toml"], 3),
+     ["ablate", "-c", "configs/btc_4h_deriv.toml"], 1),
 
     # --- the falsification batteries ---------------------------------------
     ("robust-donchian", "graveyard: donchian 4h",
-     ["robust", "-c", "configs/btc_4h.toml", "--strategy", "donchian"], 6),
+     ["robust", "-c", "configs/btc_4h.toml", "--strategy", "donchian"], 1),
     ("robust-voltarget", "graveyard: volatility targeting",
-     ["robust", "-c", "configs/btc_4h.toml", "--strategy", "vol_target"], 8),
+     ["robust", "-c", "configs/btc_4h.toml", "--strategy", "vol_target"], 1),
     ("robust-smacross", "sma_cross battery",
-     ["robust", "-c", "configs/btc_4h.toml", "--strategy", "sma_cross"], 6),
+     ["robust", "-c", "configs/btc_4h.toml", "--strategy", "sma_cross"], 1),
     ("robust-meanrev", "mean_reversion battery",
-     ["robust", "-c", "configs/btc_4h.toml", "--strategy", "mean_reversion"], 6),
+     ["robust", "-c", "configs/btc_4h.toml", "--strategy", "mean_reversion"], 1),
     ("robust-mldirection", "RESEARCH §2 battery, ml_direction",
      ["robust", "-c", "configs/btc_4h_deriv.toml", "--strategy", "ml_direction",
-      "--transfer-start", "2021-12"], 8),
+      "--transfer-start", "2021-12"], 2),
     ("robust-mlmeta", "RESEARCH §2 battery, ml_meta",
      ["robust", "-c", "configs/btc_4h_deriv.toml", "--strategy", "ml_meta",
-      "--transfer-start", "2021-12"], 8),
+      "--transfer-start", "2021-12"], 2),
 
     # --- RESEARCH section 3: cross-sectional -------------------------------
     ("xsec-narrow", "RESEARCH §3.1, 11 symbols, 46 features",
-     ["xsec", "-c", "configs/xsec_4h.toml", "--verify"], 4),
+     ["xsec", "-c", "configs/xsec_4h.toml", "--verify"], 5),
     ("xsec-narrow-37", "the width control: same panel at 37 features",
      ["xsec", "-c", "configs/xsec_4h.toml", "--set", "data.metrics=false"], 3),
     ("xsec-wide", "RESEARCH §3.2, 136 symbols — needs precached metrics",
      ["xsec", "-c", "configs/xsec_4h.toml", "--universe", "2021-12",
-      "--top-n", "40", "--verify"], 35),
+      "--top-n", "40", "--verify"], 26),
 
     # --- what the ledger now says ------------------------------------------
     ("log", "the ledger after all of the above", ["log", "--limit", "60"], 1),
@@ -188,8 +200,8 @@ def main(argv=None) -> int:
 
     print("\nEvery step completed. Reconcile the documents against "
           f"{OUT.relative_to(REPO)}/,")
-    print("then settle `prior_trials` — the ledger now contains the sweeps that")
-    print("`prior_trials = 214` was estimating.")
+    print("then check the trial count in `nullres log` against the figure")
+    print("RESEARCH.md deflates against.")
     return 0
 
 

@@ -298,17 +298,17 @@ both later delisted. USD-M perps (you cannot short spot), funding charged.
 python -m nullres xsec --config configs/xsec_4h.toml
 ```
 
-**The skill is real.** Mean AUC **0.5443**, the highest in this project, with
-folds 3-5 at 0.573 / 0.590 / 0.551. Three checks, all passed:
+**The skill is real.** Mean AUC **0.5450**, with folds 3-5 at 0.572 / 0.588 /
+0.554. Three checks, all passed:
 
 | check | result | reading |
 |---|---|---|
-| shuffled labels | AUC 0.4986 | not a leak |
-| survivors only | AUC 0.5480 | not just death-detection |
-| per-symbol AUC | median **0.501**, 5 of 10 below 0.5 | **there is no per-symbol skill** |
+| shuffled labels | AUC 0.4994 | not a leak |
+| survivors only | AUC 0.5490 | not just death-detection |
+| per-symbol AUC | median **0.498**, 5 of 10 below 0.5 | **there is no per-symbol skill** |
 
 That last row is the crack, and it is worse than the original version of this
-entry claimed. Panel AUC is 0.5443 while the median symbol scores 0.501 — the
+entry claimed. Panel AUC is 0.5450 while the median symbol scores 0.498 — the
 model cannot tell a given coin's good bars from its bad ones. Pooled AUC counts
 every (timestamp, symbol) pair together, so knowing only which symbols are
 persistently better already scores above chance. That is what it learned.
@@ -330,19 +330,27 @@ is, and it wins.*
 
 ```
   book                 total   sharpe   max dd  t-stat  trades
-  static_vs_alts      220.1%     0.89   -41.8%    1.57       2
-  btc_only            228.2%     0.81   -34.7%    1.44       1
-  longshort_k2        170.5%     0.59   -78.6%    1.05     165
-  equal_weight         15.1%     0.07   -57.7%    0.12       3
+  static_vs_alts      219.6%     0.89   -41.8%    1.57       3
+  btc_only            227.9%     0.81   -34.7%    1.44       2
+  longshort_k3        199.8%     0.81   -67.8%    1.43     165
+  longshort_k4         78.7%     0.51   -58.9%    0.91     163
+  longshort_k2         33.8%     0.17   -80.4%    0.31     164
+  equal_weight         15.0%     0.07   -57.7%    0.12       4
 ```
 
-Long BTC, short everything else, rebalance never. Three trades. It beats the
-model on return, Sharpe, drawdown and turnover simultaneously. The ML book's
-per-year record is 2023 **-69.7%**, 2024 **+258.8%** — and a -78.6% drawdown on
-a book labelled "market neutral".
+Long BTC, short everything else, rebalance never. Three trades. It beats every
+model book on Sharpe, drawdown and turnover simultaneously. The k=2 book's
+per-year record is 2023 **-72.6%**, 2024 **+130.8%**, 2025 **+82.3%** — and a
+-80.4% drawdown on a book labelled "market neutral".
+
+**Read the spread across k before reading any row of it.** Those three model
+books are one signal at three widths — same bars, same folds, same
+predictions — and they span Sharpe 0.17 to 0.81. The only difference is how
+many names each side holds. When the measurement error of a result is wider
+than the margin it needs to win by, the result is not a result.
 
 **Lesson:** a model can have genuine, verifiable skill and still be worthless.
-0.544 AUC is real; 166 trades at 8bps and a two-name book turn it into
+0.545 AUC is real; ~165 trades at 8bps and a two-name book turn it into
 underperformance. Always construct the dumbest strategy that could explain your
 result and check you beat it. Here the dumbest version was better.
 
@@ -387,18 +395,18 @@ python -m nullres xsec --config configs/xsec_4h.toml --universe 2021-12 --top-n 
 **The original width comparison was confounded, and I nearly published it.**
 The narrow panel carries 46 features; this one carries 37, because fetching
 open-interest metrics for 136 symbols is a multi-hour download and the run sets
-`--set data.metrics=false`. So "AUC rose 0.5443 -> 0.5575 because the universe
+`--set data.metrics=false`. So "AUC rose 0.5450 -> 0.5575 because the universe
 got wider" was crediting width with a change that also stripped out nine
 features — including `ls_accounts`, which the derivatives section above calls
 the single most important feature in the model. The derivatives ablation was
 careful to match samples exactly; this comparison was not.
 
-Matched at 37 features on both sides, the narrow panel scores **0.5460**. So
-width is worth **+0.0115**, not the +0.0132 first claimed. The conclusion
-survives, slightly smaller. The lesson is that a confound can sit inside a
-result for months when the result agrees with what you expected.
+Matched at 37 features on both sides, the narrow panel scores **0.5459**. So
+width is worth **+0.0116**, not the +0.0125 the unmatched comparison suggests.
+The conclusion survives, slightly smaller. The lesson is that a confound can sit
+inside a result for months when the result agrees with what you expected.
 
-**Width worked, on the matched comparison.** AUC rose 0.5460 -> **0.5575**, all
+**Width worked, on the matched comparison.** AUC rose 0.5459 -> **0.5575**, all
 five folds above 0.5 and *rising* over time (0.552 -> 0.581). Max drawdown at
 k=15 is -43.8% against the narrow book's -67.9%. Diversification did its job.
 
@@ -406,14 +414,19 @@ k=15 is -43.8% against the narrow book's -67.9%. Diversification did its job.
 
 | check | result |
 |---|---|
-| shuffled labels | AUC 0.5015 — not a leak |
-| survivors only | AUC 0.5612 — not death-detection |
-| delisted contribution | 3.7% of absolute P&L — not a bet on dying coins |
-| contributor spread | STORJ, BNB, BAKE, BEL long; ETH, DOGE, TRB, REEF short |
-| per-symbol AUC | median **0.519**, 68 of 105 above 0.5 — **skill is distributed** |
+| shuffled labels | AUC 0.5017 — not a leak |
+| survivors only | AUC 0.5504 — not death-detection |
+| delisted contribution | 2.6% of absolute P&L — not a bet on dying coins |
+| contributor spread | BAKE, BNB, DYDX, RUNE long; BLZ, XLM, ATOM, OCEAN short |
+| per-symbol AUC | median **0.521**, 67 of 105 above 0.5 — **skill is distributed** |
+
+Those figures are the 46-feature run, matching RESEARCH §3.2. An earlier
+version of this table quoted the 37-feature variant (0.5015 / 0.5612 / 3.7% /
+median 0.519 / 68 of 105) without saying so, which made it look like the same
+run reported twice with drift.
 
 **That last row is what the narrow book never had.** Its per-symbol median was
-0.501; this one is 0.519 with two thirds of the universe above chance. The
+0.498; this one is 0.521 with two thirds of the universe above chance. The
 11-symbol result was a static ordering wearing a model. This one genuinely knows
 something about individual coins, across most of them.
 
@@ -469,11 +482,12 @@ halving the long side instead would be a different strategy. What changed is tha
 `nullres xsec --verify` now says so.
 
 **Tail risk is untested, not absent.** A liquidation check found no bar worse
-than -11.8% and no case of being short a name that then exploded. That is not
-reassurance: >+65% four-hour moves occur ~12 times in 1.1M bars, and the book
-held ~13,800 short-name-bars, so the expected number of hits is **0.15**.
-Observing zero is what chance predicts. One UNFI-type event (+274% in 4h) against
-a -0.5 weight is -137% of capital, and the engine models no margin at all.
+than -11.3% and no case of being short a name that then exploded. That is not
+reassurance: >+65% four-hour moves occur 4 times in the 350,692 symbol-bars this
+book could observe, and it held 13,818 short-name-bars, so the expected number
+of hits is **0.16**. Observing zero is what chance predicts. One UNFI-type event
+(+274% in 4h) against the -1.00 weight a k=2 book reaches when a short leg
+delists is -274% of capital, and the engine models no margin at all.
 
 **Lesson:** the strongest signal in the project, verified clean from four
 directions, and it still loses to arithmetic. Cost sensitivity is not a

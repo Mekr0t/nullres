@@ -78,7 +78,7 @@ found an expensive way to underperform.
 
 Compare risk-adjusted, not absolute: Sharpe, max drawdown and Calmar, not total
 return. On the 4h config, `donchian` returns slightly less than buy & hold but
-at Sharpe 0.52 vs 0.33 and a -41% drawdown vs -77%. That is a better strategy
+at Sharpe 0.59 vs 0.38 and a -41% drawdown vs -77%. That is a better strategy
 by every measure that matters.
 
 ## 5. Read AUC, not accuracy

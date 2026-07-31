@@ -21,6 +21,16 @@ ledger holds every one of them:
   robust  130      sweep  50      run  24      xsec  14      ablate  2
 ```
 
+**That 220 is a floor, for one reason beyond the two records that predate
+variant counting.** The ledger fingerprints a run by its config file, and the
+narrow and wide panels are the same file — `--universe` and `--top-n` are
+command-line arguments, not config keys. So two genuinely different experiments
+on two different universes collapse into one entry. Counting them separately
+would give 232. The correction is small enough not to change any conclusion
+here (roughly 0.01 on a deflated Sharpe) and is left alone rather than papered
+over, but it points the same way everything else in this section does: the true
+exposure is higher than the number, never lower.
+
 `prior_trials` used to declare an estimated 214 combinations explored before the
 ledger existed. It is now **0**, because `scripts/reproduce_all.py` re-ran that
 work and the ledger records it — the two 25-cell sweeps match the old estimate
@@ -34,13 +44,21 @@ the number of trials. Re-deflating the headline results at 220:
 | result | sharpe | deflated @ 6 | deflated @ 220 |
 |---|---|---|---|
 | xsec wide k=2 | 2.02 | 1.29 | **0.45** |
-| xsec wide k=10 | 1.74 | 1.01 | 0.17 |
-| xsec wide static_vs_alts | 1.60 | 0.87 | 0.03 |
+| xsec wide k=10 | 1.74 | 1.01 | 0.16 |
+| xsec wide static_vs_alts | 1.60 | 0.87 | 0.02 |
 | xsec wide k=15 | 1.43 | 0.70 | -0.14 |
 | xsec wide k=5 | 1.40 | 0.67 | -0.17 |
-| xsec 11-symbol static | 0.89 | 0.16 | -0.68 |
-| donchian 4h | 0.59 | -0.14 | -0.98 |
-| BTC buy & hold, 1h | 0.50 | -0.23 | -1.07 |
+| xsec 11-symbol static | 0.89 | 0.16 | -0.69 |
+| donchian 4h | 0.59 | -0.02 | -0.72 |
+| BTC buy & hold, 1h | 0.50 | -0.08 | -0.75 |
+
+The last two rows were wrong until 2026-07-31, and wrong in an instructive way.
+They read -0.14/-0.98 and -0.23/-1.07, which are what you get by subtracting the
+*panel's* deflation term from a single-asset Sharpe. That term is
+`e_max * sqrt(bars_per_year / n_obs)`, so it depends on how many bars the result
+was measured over: 6,909 for the panel, 9,980 for the 4h config, 44,190 for 1h.
+It is not a constant that can be carried between rows of a table. Both figures
+are now taken from the commands' own output rather than recomputed by hand.
 
 ### The honest reading of that 0.45
 
@@ -216,23 +234,32 @@ The models disagree about which assets they work on, which is the tell:
 
 ### 11-symbol universe (fixed at 2021-12)
 
-Out-of-sample 2022-10-30 to 2025-12-24, 6,909 bars. Mean AUC **0.5443**,
-4/5 folds above 0.5.
+Out-of-sample 2022-10-30 to 2025-12-24, 6,909 bars. Mean AUC **0.5450**,
+4/5 folds above 0.5 (0.489 / 0.522 / 0.572 / 0.588 / 0.554).
 
 | book | total | sharpe | max dd | t-stat | trades |
 |---|---|---|---|---|---|
 | static_vs_alts | 219.6% | **0.89** | -41.8% | 1.57 | 3 |
+| longshort_k3 | 199.8% | 0.81 | -67.8% | 1.43 | 165 |
 | btc_only | 227.9% | 0.81 | -34.7% | 1.44 | 2 |
-| longshort_k2 | 170.5% | 0.59 | -78.6% | 1.05 | 165 |
+| longshort_k4 | 78.7% | 0.51 | -58.9% | 0.91 | 163 |
+| longshort_k2 | 33.8% | 0.17 | -80.4% | 0.31 | 164 |
 | equal_weight | 15.0% | 0.07 | -57.7% | 0.12 | 4 |
 
-Verification (`nullres xsec --verify`): shuffled labels **0.4986**;
-survivors-only **0.5480**, so not death-detection; 7.1% of absolute P&L from the
+**Read the spread across k, not any single row.** The three model books are the
+same signal expressed at three widths, and they range from Sharpe 0.17 to 0.81
+on identical bars, folds and predictions. Nothing distinguishes them but how
+many names each side holds. That range is the measurement error on this panel,
+and it is wider than the gap between the best book and the benchmark it has to
+beat — which is the finding, not a caveat to one.
+
+Verification (`nullres xsec --verify`): shuffled labels **0.4994**;
+survivors-only **0.5490**, so not death-detection; 5.0% of absolute P&L from the
 two symbols that delisted; tail census 0.16 expected hits against 0 observed.
 
 **Per-symbol skill, and the number that explains the rest.** Panel AUC is
-0.5443. Broken down per symbol it is **0.501 at the median, with 5 of 10 symbols
-below 0.5** — best XRPUSDT 0.546, worst MATICUSDT 0.458, spread 0.088.
+0.5450. Broken down per symbol it is **0.498 at the median, with 5 of 10 symbols
+below 0.5** — best XRPUSDT 0.552, worst MATICUSDT 0.454, spread 0.098.
 
 Pooled AUC counts every (timestamp, symbol) pair together, so a model that has
 only learned *which symbols are persistently better* scores above chance from
@@ -252,12 +279,22 @@ there to be concentrated.
 
 **The 46-vs-37 feature comparison, which matters more than it looks.** Re-run
 without open-interest features (`--set data.metrics=false`), this panel scores
-mean AUC **0.5460** — marginally *higher* than the 0.5443 above — while the k=2
-book's Sharpe falls from **0.59 to 0.20** and its total return from 170.5% to
-38.1%. Same bars, same folds, nine features different. Discrimination did not
-move; the equity curve moved by two thirds. At ~160 trades the Sharpe is decided
-by which handful of positions landed, and this is the cleanest demonstration of
-it in the repository.
+mean AUC **0.5459** — marginally *higher* than the 0.5450 above — while the k=2
+book's Sharpe goes from **0.17 to 0.57** and its total return from 33.8% to
+144.5%. Same bars, same folds, nine features different. Discrimination moved by
+0.0009; the equity curve more than tripled.
+
+The direction of that Sharpe change is not stable, and saying so is the point.
+An earlier version of this file recorded the same comparison running the other
+way — 0.59 down to 0.20 — and the only thing that changed between the two
+readings was a divide-by-zero fix in RSI that altered **14 cells out of
+87,551**, none of them in an open-interest feature. A comparison whose *sign*
+flips on a 0.0003% change to an unrelated input is not measuring the feature
+set. It is measuring which handful of positions landed, at ~165 trades.
+
+Both readings agree on the part that survives: AUC barely moves while the curve
+moves by multiples. That is the finding. The magnitude and direction of the
+Sharpe gap are not.
 
 ### 136-symbol universe (enumerated from the archive at 2021-12)
 
@@ -298,11 +335,11 @@ everything but the feature set:
 
 | | 37 features | 46 features |
 |---|---|---|
-| narrow (11) | 0.5460 | 0.5443 |
+| narrow (11) | 0.5459 | 0.5450 |
 | wide (136) | **0.5575** | 0.5496 |
 
 Adding the nine positioning features lowers mean AUC in both panels, and width is
-worth less at 46 features (+0.0053) than at 37 (+0.0115). That does not
+worth less at 46 features (+0.0046) than at 37 (+0.0116). That does not
 contradict §2, which found the same data *helps* single-asset BTC: positioning is
 far noisier for small alts, and rank-transforming it across a heterogeneous
 universe adds noise rather than signal. The feature §2 calls the most important
@@ -337,8 +374,8 @@ leg only because we know how 2022-2025 ended.
 **Verification** (`nullres xsec --universe 2021-12 --top-n 40 --verify`):
 shuffled labels **0.5017**; survivors-only **0.5504**, so not death-detection;
 **2.6%** of absolute P&L from the nine symbols that delisted; contributors
-spread across STORJ, BNB, BAKE, BEL long and ETH, DOGE, TRB, REEF short. Extreme
-bars are genuine market events (LUNA +346% in one 4h bar is the real
+spread across BAKE, BNB, DYDX, RUNE long and BLZ, XLM, ATOM, OCEAN short.
+Extreme bars are genuine market events (LUNA +346% in one 4h bar is the real
 death-spiral bounce), not gap artefacts.
 
 **The skill here is distributed, and that is what separates this from the
@@ -346,7 +383,7 @@ death-spiral bounce), not gap artefacts.
 bars has a **median of 0.521, with 67 of 105 above 0.5** — best ATAUSDT 0.797,
 worst OMGUSDT 0.193.
 
-Read that against §3.1, where the same decomposition gives a median of 0.501 and
+Read that against §3.1, where the same decomposition gives a median of 0.498 and
 5 of 10 symbols below 0.5. The narrow book's pooled AUC was almost entirely
 cross-sectional ordering: it had learned which symbols were persistently better,
 which is a static bet wearing a model. This one has genuine within-symbol timing
@@ -357,11 +394,13 @@ Which makes the cost result below the more damning, not the less. This is the
 one book in the project whose edge is real, distributed and verified from five
 directions — and it still does not survive its own slippage.
 
-**Tail risk is untested, not absent.** No bar lost more than 11.8% and the book
-was never short a name that then exploded — but >+65% four-hour moves occur ~12
-times in 1.1M bars against ~13,800 short-name-bars, so the expected count is
-**0.15**. Zero is what chance predicts. One such event against a -0.5 weight is
--137% of capital, and the engine models no margin.
+**Tail risk is untested, not absent.** No bar lost more than 11.3% and the book
+was never short a name that then exploded — but >+65% four-hour moves occur 4
+times in the 350,692 symbol-bars this book could observe, against 13,818
+short-name-bars, so the expected count is **0.16**. Zero is what chance
+predicts. One UNFI-type event (+274% in a single 4h bar in 2021) against the
+-1.00 weight a k=2 book reaches when a short leg delists is -274% of capital,
+and the engine models no margin.
 
 ---
 
@@ -399,9 +438,8 @@ Some regenerated values differ from the hand-computed originals, because the
 method is now pinned rather than remembered. The shuffled-label control permutes
 **within each timestamp** so the label stays balanced in every regime, and draws
 from a stream seeded by the timestamp so the answer does not depend on
-processing order: 0.4986 against the 0.4970 once quoted. Survivors-only gives
-0.5480 against 0.5518. Both still say the same thing. The tail census and the
-contributor lists reproduce exactly.
+processing order: 0.4994 against the 0.4970 once quoted. Survivors-only gives
+0.5490 against 0.5518. Both still say the same thing.
 
 The per-symbol figure changed for a substantive reason rather than a procedural
 one — it is now AUC rather than accuracy, because accuracy in a
