@@ -422,8 +422,17 @@ signal that was not there, or was there and was really something else. This one
 is real, distributed, verified from five directions — and still loses to its own
 slippage.
 
-At the configured 8bps the k=2 book returns **212x, Sharpe 1.80, t-stat 3.19** —
-the only t-stat above 3 this project has produced.
+At the configured 8bps and 46 features the k=2 book returns **378x, Sharpe 2.02,
+t-stat 3.59** — the largest numbers this project has produced, and the ones to
+trust least. Adding the nine open-interest features raised that Sharpe from 1.80
+while *lowering* mean AUC from 0.5575 to 0.5496. Discrimination fell and the
+equity curve got luckier, which is the situation the derivatives entry above
+already ruled on: at these trade counts, believe the AUC.
+
+The 37-feature panel is the honest version of this result. Its k=2 Sharpe of 1.80
+deflates to 0.23 against the ledger's 220 trials; the 2.02 deflates to 0.45, and
+that gap is what deflating noise looks like. Deflation corrects for how often you
+looked, not for whether the thing you looked at was real.
 
 ### Why it is still dead
 
@@ -432,10 +441,10 @@ fiction for them:
 
 ```
   slippage   k=2    k=5   static
-     3bps   1.80   1.72    1.60
-    25bps   1.42   1.19    1.55
-    50bps   0.99   0.59    1.49
-   100bps   0.13  -0.57    1.38      <- Sharpe
+     3bps   2.02   1.40    1.60
+    25bps   1.62   0.85    1.54
+    50bps   1.15   0.22    1.49
+   100bps   0.24  -0.97    1.37      <- Sharpe
 ```
 
 The model's column collapses. `static_vs_alts` barely moves, because it spreads
@@ -448,6 +457,16 @@ basket. And that is hindsight: BTC is the long leg because we know alts fell
 consensus was the opposite trade. This is
 [02 — Leakage](02-leakage.md#7-hindsight-in-the-research-process-itself) wearing
 a cross-sectional costume.
+
+**And a k=2 book can end up 100% short a single name.** `_neutralise` keeps the
+book dollar-neutral when a symbol delists by rescaling the surviving side, so
+when one of two shorts dies the other doubles from -0.5 to -1.0. Gross exposure
+never changes, which is why nothing flagged it for months — but the move that
+ruins the book halves, from +200% to +100%. It ran that way on 1.3% of bars held,
+longest stretch 14 bars. Nine symbols delist in this universe, so it is not
+hypothetical. The behaviour stays: dollar-neutrality is what the book IS, and
+halving the long side instead would be a different strategy. What changed is that
+`nullres xsec --verify` now says so.
 
 **Tail risk is untested, not absent.** A liquidation check found no bar worse
 than -11.8% and no case of being short a name that then exploded. That is not

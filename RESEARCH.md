@@ -14,67 +14,73 @@ caveat is not boilerplate; see [02 — Leakage](docs/02-leakage.md#7-hindsight-i
 
 ## Read this before any table below: the multiple-testing correction
 
-Roughly **214 parameter combinations** were explored to produce this document —
-six configs across ~six strategies, two 25-cell threshold sweeps, four
-robustness batteries of ~20 grid cells each, ablations, k-sweeps and cost
-sweeps. Searching that many variants finds good-looking results in pure noise.
+**220 distinct parameter combinations** produced this document, and the run
+ledger holds every one of them:
+
+```
+  robust  130      sweep  50      run  24      xsec  14      ablate  2
+```
+
+`prior_trials` used to declare an estimated 214 combinations explored before the
+ledger existed. It is now **0**, because `scripts/reproduce_all.py` re-ran that
+work and the ledger records it — the two 25-cell sweeps match the old estimate
+at exactly 50, and the batteries over-cover it at 130 against ~80. Keeping both
+counted the same experiments twice, which made a result deflate harder for
+having been verified.
 
 `deflated_sharpe` subtracts the Sharpe you would expect to reach by luck given
-the number of trials. It was originally wired to the count of strategies in a
-single run — six — which badly understated the exposure. Re-deflating the
-headline results honestly:
+the number of trials. Re-deflating the headline results at 220:
 
-| result | sharpe | deflated @ 6 | deflated @ 214 | deflated @ 348 |
-|---|---|---|---|---|
-| xsec wide k=2 | 1.80 | 1.07 | **0.23** | **0.14** |
-| xsec wide k=5 | 1.72 | 0.99 | 0.15 | 0.06 |
-| xsec wide static_vs_alts | 1.60 | 0.87 | 0.03 | -0.06 |
-| xsec wide k=10 | 1.50 | 0.77 | -0.07 | -0.16 |
-| xsec wide k=15 | 1.20 | 0.47 | -0.37 | -0.46 |
-| xsec 11-symbol static | 0.89 | 0.16 | -0.68 | -0.77 |
-| donchian 4h | 0.59 | -0.14 | -0.98 | -1.07 |
-| BTC buy & hold, 1h | 0.50 | -0.23 | -1.07 | -1.16 |
+| result | sharpe | deflated @ 6 | deflated @ 220 |
+|---|---|---|---|
+| xsec wide k=2 | 2.02 | 1.29 | **0.45** |
+| xsec wide k=10 | 1.74 | 1.01 | 0.17 |
+| xsec wide static_vs_alts | 1.60 | 0.87 | 0.03 |
+| xsec wide k=15 | 1.43 | 0.70 | -0.14 |
+| xsec wide k=5 | 1.40 | 0.67 | -0.17 |
+| xsec 11-symbol static | 0.89 | 0.16 | -0.68 |
+| donchian 4h | 0.59 | -0.14 | -0.98 |
+| BTC buy & hold, 1h | 0.50 | -0.23 | -1.07 |
 
-**Almost nothing in this repository survives its own multiple-testing
-correction, and what does survive is too small to trade.** The best result — the
-wide cross-sectional book, Sharpe 1.80, t-stat 3.19 — deflates to **0.23** at
-the 214 trials estimated before the ledger existed, and to **0.14** once the
-ledger's own 134 are added. Positive, and far too small to act on. Every other
-result in the table is at or below zero.
+### The honest reading of that 0.45
 
-An earlier version of this file reported that best figure as **0.05** and
-claimed nothing survived at all. Two corrections moved it: metrics are now
-measured on the out-of-sample window rather than diluted across bars the
-strategy never traded, which raised every Sharpe by `1/sqrt(oos fraction)`; and
-the trial count now collapses repeated runs of the same experiment instead of
-summing them. The conclusion is weaker than it was, and it should be — the old
-number was the product of two measurement errors that happened to point the same
-way.
+An earlier version of this file reported the best figure as **0.05** and
+concluded that nothing here survived its own correction. That is no longer true
+as stated, and the history of the number is worth more than the number:
 
-It does not rescue the strategy. The cost sweep below still takes k=2 from 1.80
-to **0.13** at realistic alt slippage, and that argument never depended on the
-deflation.
+| | sharpe | basis | deflated |
+|---|---|---|---|
+| as first published | 1.61 | 214 | 0.05 |
+| metrics measured on the out-of-sample window only | 1.80 | 214 | 0.23 |
+| trial count deduplicated, `prior_trials` retired | 1.80 | 220 | 0.23 |
+| open-interest features added to the panel | **2.02** | 220 | **0.45** |
 
-Sensitivity, so the number is not taken as precise:
+The first two steps were corrections: Sharpe was being diluted across bars the
+strategy never traded, and the same experiments were being counted twice. Both
+were errors in the conservative direction, and fixing them raised the figure.
+
+**The last step is not a correction, and it should not be believed.** Adding the
+nine open-interest features lifted the k=2 Sharpe from 1.80 to 2.02 while
+*lowering* mean AUC from 0.5575 to 0.5496 — the model discriminates worse and
+the equity curve got luckier. This repository already has a rule for that
+situation, in the derivatives entry of the graveyard: at these trade counts the
+curve is decided by which handful of positions landed, so believe the AUC. On
+that rule the honest figure is the **0.23** of the 37-feature panel, and 0.45 is
+what deflating a lucky Sharpe looks like.
+
+Deflation cannot see this. It corrects for how many times you looked; it cannot
+tell you that the thing you are correcting was noise to begin with.
+
+Sensitivity, so no single number is taken as precise:
 
 ```
-  trials      1      6     25    100    214    348   1000
-  deflated  1.80   1.07   0.68   0.38   0.23   0.14  -0.03
+  trials      1      6     25    100    220    500   1000
+  deflated  2.02   1.29   0.90   0.60   0.45   0.30   0.19
 ```
 
-The trial count is read from the run ledger rather than assumed, and
-`prior_trials` in each config declares the exposure that predates it.
-`nullres run` prints the count it used.
-
-**A caveat on the count itself.** `prior_trials = 214` is an estimate of work
-done before the ledger existed. Reproducing those same experiments now also
-records them in the ledger, so they are counted twice — verifying a result makes
-its deflation harsher without any new hypothesis being tested. The 348 column is
-therefore an upper bound and 214 a lower one. The honest reading is that the
-best result sits somewhere in **0.14 to 0.23**, and that the distinction does
-not matter, because 100bps of slippage takes it to 0.13 regardless.
-
----
+And none of it rescues the book. The cost sweep in §3.2 takes k=2 from 2.02 to
+**0.24** at realistic alt slippage, an argument that never depended on the
+deflation at all.
 
 ## 1. Single-asset direction — BTCUSDT
 
@@ -84,10 +90,10 @@ Purged walk-forward, 12bps/side, out-of-sample 2020-12 to 2025-12.
 
 | strategy | total | sharpe | max dd | trades | cost drag |
 |---|---|---|---|---|---|
-| buy & hold | 355.8% | 0.50 | -77.2% | 1 | 0.1% |
-| sma_cross | 173.7% | 0.49 | -57.6% | 307 | 30.8% |
-| donchian | 108.0% | 0.41 | -54.7% | 303 | 30.5% |
-| ml_direction | -15.1% | -0.07 | -69.6% | 131 | 17.6% |
+| buy & hold | 355.3% | 0.50 | -77.2% | 2 | 0.2% |
+| sma_cross | 173.4% | 0.49 | -57.6% | 308 | 30.9% |
+| donchian | 107.7% | 0.41 | -54.7% | 304 | 30.6% |
+| ml_direction | -15.2% | -0.07 | -69.6% | 132 | 17.7% |
 | ml_meta | -35.4% | -0.20 | -72.4% | 127 | 14.9% |
 | mean_reversion | -92.8% | -1.16 | -94.0% | 1,330 | 79.7% |
 
@@ -96,12 +102,12 @@ Purged walk-forward, 12bps/side, out-of-sample 2020-12 to 2025-12.
 | strategy | total | sharpe | max dd | trades | cost drag |
 |---|---|---|---|---|---|
 | donchian | 144.4% | **0.59** | -40.7% | 66 | 7.6% |
-| buy & hold | 148.9% | 0.38 | -77.0% | 1 | 0.1% |
+| buy & hold | 148.6% | 0.38 | -77.0% | 2 | 0.2% |
 | sma_cross | 74.8% | 0.35 | -56.2% | 62 | 7.2% |
-| vol_target | 63.8% | 0.24 | -73.1% | 273 | 5.0% |
+| vol_target | 63.6% | 0.24 | -73.1% | 274 | 5.2% |
 | ml_direction | -29.2% | -0.17 | -49.4% | 112 | 16.5% |
 | mean_reversion | -69.3% | -0.66 | -86.0% | 290 | 29.4% |
-| ml_meta | -73.3% | -0.75 | -79.7% | 112 | 13.7% |
+| ml_meta | -73.3% | -0.75 | -79.7% | 113 | 13.8% |
 
 ### 1d (1,424 OOS bars)
 
@@ -113,6 +119,14 @@ Purged walk-forward, 12bps/side, out-of-sample 2020-12 to 2025-12.
 | ml_meta | 20.8% | 0.15 | -40.1% | 67 | 7.8% |
 | ml_direction | 9.6% | 0.05 | -64.3% | 65 | 10.2% |
 | mean_reversion | -58.8% | -0.59 | -66.1% | 37 | 4.3% |
+
+Totals, trade counts and cost drags here match this file's first publication
+exactly; only Sharpe and CAGR moved. Two independent fixes account for that.
+Metrics are now measured on the out-of-sample window rather than diluted across
+bars the strategy never traded, which raised every Sharpe by `1/sqrt(oos
+fraction)`. And the trade that closes a position still open at the window's edge
+is charged again — masking had been dropping it, which is why buy & hold briefly
+reported one trade for a round trip.
 
 Daily is the only config where ML returns are positive, and they are the least
 trustworthy numbers here: per-fold AUC decays monotonically and ends *below*
@@ -181,7 +195,7 @@ Four of the top ten are derivatives. Funding *rate* itself carries nothing:
 |---|---|---|
 | neighbourhood | **FAIL** — 39% sign flips vs 38% expected | **FAIL** — 48% vs 48% |
 | stability | ok — 2 of 3 years, mean excess -0.07 (p=0.96) | inconclusive — 0 of 3, mean -0.99 (p=0.18) |
-| transfer | inconclusive — 2 of 4 symbols | inconclusive — 2 of 4, mean -0.04 (p=0.94) |
+| transfer | inconclusive — 2 of 4, mean -0.48 (p=0.52) | inconclusive — 2 of 4, mean -0.04 (p=0.94) |
 
 Both are **KILLED**, and on the neighbourhood test alone: their grids are no
 smoother than randomly scattered signs. The stability and transfer counts point
@@ -207,10 +221,10 @@ Out-of-sample 2022-10-30 to 2025-12-24, 6,909 bars. Mean AUC **0.5443**,
 
 | book | total | sharpe | max dd | t-stat | trades |
 |---|---|---|---|---|---|
-| static_vs_alts | 220.1% | **0.89** | -41.8% | 1.57 | 2 |
-| btc_only | 228.2% | 0.81 | -34.7% | 1.44 | 1 |
+| static_vs_alts | 219.6% | **0.89** | -41.8% | 1.57 | 3 |
+| btc_only | 227.9% | 0.81 | -34.7% | 1.44 | 2 |
 | longshort_k2 | 170.5% | 0.59 | -78.6% | 1.05 | 165 |
-| equal_weight | 15.1% | 0.07 | -57.7% | 0.12 | 3 |
+| equal_weight | 15.0% | 0.07 | -57.7% | 0.12 | 4 |
 
 Verification (`nullres xsec --verify`): shuffled labels **0.4986**;
 survivors-only **0.5480**, so not death-detection; 7.1% of absolute P&L from the
@@ -248,17 +262,17 @@ it in the repository.
 ### 136-symbol universe (enumerated from the archive at 2021-12)
 
 Top-40 by trailing dollar volume, 9 delisted symbols retained. Mean AUC
-**0.5575**, 5/5 folds above 0.5 and rising (0.552 → 0.581).
+**0.5496**, 5/5 folds above 0.5 (0.532 / 0.535 / 0.570 / 0.557 / 0.555).
 
 | book | total | sharpe | max dd | t-stat | trades |
 |---|---|---|---|---|---|
-| longshort_k2 | 2.12e+02x | **1.80** | -67.9% | **3.19** | 191 |
-| longshort_k5 | 2375.9% | 1.72 | -58.8% | 3.06 | 208 |
-| static_vs_alts | 1080.8% | 1.60 | -40.3% | 2.84 | 627 |
-| longshort_k10 | 654.0% | 1.50 | -53.1% | 2.67 | 234 |
-| longshort_k15 | 253.9% | 1.20 | -43.8% | 2.12 | 268 |
-| btc_only | 228.2% | 0.81 | -34.7% | 1.44 | 1 |
-| equal_weight | -65.5% | -0.47 | -78.5% | -0.83 | 568 |
+| longshort_k2 | 3.78e+02x | **2.02** | -73.5% | **3.59** | 187 |
+| longshort_k10 | 764.1% | 1.74 | -49.6% | 3.08 | 235 |
+| static_vs_alts | 1078.9% | 1.60 | -40.3% | 2.84 | 628 |
+| longshort_k15 | 299.1% | 1.43 | -42.0% | 2.54 | 269 |
+| longshort_k5 | 1231.1% | 1.40 | -64.3% | 2.49 | 199 |
+| btc_only | 227.9% | 0.81 | -34.7% | 1.44 | 2 |
+| equal_weight | -65.5% | -0.47 | -78.5% | -0.83 | 569 |
 
 The k=2 total fell from a previously reported 2.39e+02x because the book used to
 keep trading past the last bar it had a prediction for. `panel_positions` holds
@@ -279,30 +293,58 @@ It applies to `static_vs_alts` too, which matters when reading it as the
 it requires the same margin. `btc_only` and `equal_weight` are the only 1x books
 in the comparison.
 
+**The open-interest features make this panel WORSE, not better.** Matched on
+everything but the feature set:
+
+| | 37 features | 46 features |
+|---|---|---|
+| narrow (11) | 0.5460 | 0.5443 |
+| wide (136) | **0.5575** | 0.5496 |
+
+Adding the nine positioning features lowers mean AUC in both panels, and width is
+worth less at 46 features (+0.0053) than at 37 (+0.0115). That does not
+contradict §2, which found the same data *helps* single-asset BTC: positioning is
+far noisier for small alts, and rank-transforming it across a heterogeneous
+universe adds noise rather than signal. The feature §2 calls the most important
+in the model is a liability in the cross-section.
+
+It is also why the k=2 Sharpe of 2.02 should not be believed — see the note on
+the headline figure at the top of this file. Discrimination fell; the curve got
+luckier.
+
+**A k=2 book can hold 100% of capital short a single name.** `_neutralise`
+preserves dollar-neutrality when a symbol delists by rescaling the surviving
+side, so when one of two shorts dies the other goes from -0.5 to **-1.0**. Gross
+exposure and net are unchanged; the move that ruins the book halves, from +200%
+to +100%. It happened on 88 of 6,934 bars held (1.3%), longest unbroken stretch
+14 bars. The behaviour is deliberate — dollar-neutrality is the book's defining
+constraint and the alternatives change the strategy rather than make it safer —
+but nothing reported it until `--verify` did.
+
 **Cost sensitivity — the decisive measurement.** Fee held at 5bps:
 
 | slippage/side | k=2 | k=5 | k=10 | k=15 | static |
 |---|---|---|---|---|---|
-| 3bps | 1.80 | 1.72 | 1.50 | 1.20 | 1.60 |
-| 25bps | 1.42 | 1.19 | 0.91 | 0.58 | 1.55 |
-| 50bps | 0.99 | 0.59 | 0.23 | -0.11 | 1.49 |
-| 100bps | **0.13** | **-0.57** | -1.03 | -1.39 | 1.38 |
+| 3bps | 2.02 | 1.40 | 1.74 | 1.43 | 1.60 |
+| 25bps | 1.62 | 0.85 | 1.03 | 0.67 | 1.54 |
+| 50bps | 1.15 | 0.22 | 0.24 | -0.18 | 1.49 |
+| 100bps | **0.24** | **-0.97** | -1.23 | -1.71 | 1.37 |
 
 The model's column collapses; the static book barely moves. What survives
 realistic alt slippage needs no model — and is hindsight, since BTC is its long
 leg only because we know how 2022-2025 ended.
 
 **Verification** (`nullres xsec --universe 2021-12 --top-n 40 --verify`):
-shuffled labels **0.5015**; survivors-only **0.5612**, so not death-detection;
-**3.7%** of absolute P&L from the nine symbols that delisted; contributors
+shuffled labels **0.5017**; survivors-only **0.5504**, so not death-detection;
+**2.6%** of absolute P&L from the nine symbols that delisted; contributors
 spread across STORJ, BNB, BAKE, BEL long and ETH, DOGE, TRB, REEF short. Extreme
 bars are genuine market events (LUNA +346% in one 4h bar is the real
 death-spiral bounce), not gap artefacts.
 
 **The skill here is distributed, and that is what separates this from the
 11-symbol book.** Per-symbol AUC over the 105 symbols with at least 200 scored
-bars has a **median of 0.519, with 68 of 105 above 0.5** — best ATAUSDT 0.740,
-worst OMGUSDT 0.315.
+bars has a **median of 0.521, with 67 of 105 above 0.5** — best ATAUSDT 0.797,
+worst OMGUSDT 0.193.
 
 Read that against §3.1, where the same decomposition gives a median of 0.501 and
 5 of 10 symbols below 0.5. The narrow book's pooled AUC was almost entirely

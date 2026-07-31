@@ -8,11 +8,15 @@ name = "btc_1h"
 strategies = ["sma_cross", "donchian", "mean_reversion", "ml_direction", "ml_meta"]
 out_dir = "reports"
 
-# Parameter combinations explored before the run ledger existed: six configs
-# x ~six strategies, two 25-cell sweeps, four robustness batteries, ablations
-# and cost sweeps. Declaring it is what keeps `deflated_sharpe` honest -- the
-# ledger cannot know about work it did not record.
-prior_trials = 214
+# Parameter combinations explored before the run ledger existed. Set to ZERO on
+# 2026-07-31: `scripts/reproduce_all.py` re-ran every one of those experiments,
+# so the ledger now holds 220 distinct trials covering the same ground the old
+# estimate of 214 described -- the two 25-cell sweeps match it at exactly 50,
+# and the batteries over-cover it (130 against ~80, six batteries not four).
+# Keeping 214 on top of that counted the same work twice, which made every
+# deflated Sharpe harsher for having been verified. Raise this again only for
+# exploration the ledger genuinely cannot see.
+prior_trials = 0
 
 [data]
 symbol = "BTCUSDT"

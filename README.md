@@ -189,25 +189,33 @@ have proved it.
 | volatility targeting | crypto has no leverage effect to exploit |
 | funding / open interest | +0.012 AUC — real, doesn't clear 24bps |
 | cross-sectional (11) | loses to a 3-trade static bet |
-| cross-sectional (136) | **AUC 0.5575, t-stat 3.19 — dies to slippage** |
+| cross-sectional (136) | **AUC 0.5496, t-stat 3.59 — dies to slippage** |
 
 That last row is the one to read. The signal is real and it is *distributed*:
-shuffled labels give 0.5015, delisted names contribute 3.7% of absolute P&L, and
-per-symbol AUC has a median of 0.519 with 68 of 105 symbols above chance — so
+shuffled labels give 0.5017, delisted names contribute 2.6% of absolute P&L, and
+per-symbol AUC has a median of 0.521 with 67 of 105 symbols above chance — so
 unlike the 11-symbol book, this one is not a static ordering wearing a model. It
-survives five independent checks. It dies anyway — to costs (Sharpe 1.80 at
-3bps, **0.13** at 100bps), and it barely clears the arithmetic nobody enjoys:
+survives five independent checks. It dies anyway — to costs (Sharpe 2.02 at
+3bps, **0.24** at 100bps), and it does not clear the arithmetic nobody enjoys as
+well as it appears to:
 
 ```
-  trials      1      6     25    100    214    343   1000
-  deflated  1.80   1.07   0.68   0.38   0.23   0.15  -0.03
+  trials      1      6     25    100    220    500   1000
+  deflated  2.02   1.29   0.90   0.60   0.45   0.30   0.19
 ```
 
-~214 parameter combinations were explored before the ledger existed, and it has
-recorded 129 since. Deflating the best result against that leaves **0.15–0.23** —
-positive, and far too small to trade. `nullres` reads the count from its own run
-ledger, so the correction applies itself rather than depending on anyone
-remembering to.
+The ledger holds **220 distinct trials**, and `nullres` reads the count from it,
+so the correction applies itself rather than depending on anyone remembering to.
+Deflating the best result against 220 leaves **0.45** — the largest surviving
+figure this project has produced.
+
+**And it should not be believed.** That 2.02 came from adding open-interest
+features which *lowered* mean AUC from 0.5575 to 0.5496. Discrimination got worse
+while the equity curve got luckier, and at ~190 trades the curve is decided by
+which handful of positions landed. The 37-feature panel is the honest version:
+Sharpe 1.80, deflating to **0.23**. Deflation corrects for how often you looked,
+not for whether what you found was real — which is a limit of the method worth
+knowing before you lean on it.
 
 **Does the framework work?** It told me eight times that I had nothing, then cut
 my own headline number to near-zero — and when I made its verdicts honest about
