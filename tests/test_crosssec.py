@@ -14,7 +14,6 @@ import pytest
 from nullres.config import SplitConfig
 from nullres.crosssec import (
     UNIVERSE_2021_12,
-    _cross_sectional_rank,
     _relative_label,
     backtest_panel,
     panel_positions,
@@ -300,4 +299,149 @@ def test_funding_is_charged_on_held_positions():
     without = backtest_panel(pos, panel, free, charge_funding=False)
     assert with_funding.equity.iloc[-1] < without.equity.iloc[-1], (
         "a long paying positive funding must lose money on a flat market"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Vectorisation equivalence
+#
+# `panel_positions` and the equal-weight benchmark were rewritten from row-wise
+# loops into array operations. The originals are kept here verbatim as
+# reference implementations, and the tests assert BIT-identical output rather
+# than approximate agreement. That standard is not pedantry: a 0.0003% change
+# to this panel's inputs has already been shown to move its headline Sharpe by
+# 60%, so a last-ULP difference is not something this book can be trusted to
+# absorb.
+# ---------------------------------------------------------------------------
+
+def _reference_panel_positions(proba, panel, top_k=3, rebalance=42,
+                               allow_short=True):
+    """The original one-bar-at-a-time implementation."""
+    from nullres.crosssec import _neutralise
+
+    wide = proba.unstack("symbol").reindex(panel.times)
+    positions = pd.DataFrame(0.0, index=panel.times, columns=wide.columns)
+    current = pd.Series(0.0, index=wide.columns)
+    for i, ts in enumerate(panel.times):
+        if i % rebalance == 0:
+            row = wide.loc[ts].dropna()
+            if len(row) >= 2 * top_k:
+                ranked = row.sort_values(ascending=False)
+                current = pd.Series(0.0, index=wide.columns)
+                current[ranked.index[:top_k]] = 1.0 / top_k
+                if allow_short:
+                    current[ranked.index[-top_k:]] = -1.0 / top_k
+        alive = panel.ret_next.loc[ts].notna()
+        positions.loc[ts] = _neutralise(current.where(alive, 0.0), allow_short)
+    return positions
+
+
+def _reference_equal_weight(alive, rebalance):
+    """The original row-wise equal-weight recursion."""
+    weights = alive.div(alive.sum(axis=1).replace(0, np.nan), axis=0).fillna(0.0)
+    held = weights.copy()
+    for i in range(1, len(held)):
+        if i % rebalance:
+            held.iloc[i] = held.iloc[i - 1].where(alive.iloc[i], 0.0)
+    return held
+
+
+def _panel_with_deaths(n_ts=400, n_sym=14, seed=0, deaths=4):
+    """A panel where symbols delist mid-sample, so the rescale path is live."""
+    from nullres.crosssec import Panel
+
+    rng = np.random.default_rng(seed)
+    times = pd.date_range("2022-01-01", periods=n_ts, freq="4h")
+    symbols = [f"S{i}USDT" for i in range(n_sym)]
+    ret = pd.DataFrame(rng.normal(0, 0.02, (n_ts, n_sym)),
+                       index=times, columns=symbols)
+    for j in range(deaths):                      # staggered delistings
+        ret.iloc[120 + j * 40:, j] = np.nan
+
+    idx = pd.MultiIndex.from_product([times, symbols], names=["ts", "symbol"])
+    proba = pd.Series(rng.random(len(idx)), index=idx)
+    # Some bars have no prediction at all, exercising the carry-forward path.
+    proba.iloc[: n_sym * 3] = np.nan
+    panel = Panel(features=pd.DataFrame(index=idx), y=pd.Series(dtype=float),
+                  ret_next=ret, funding=ret * 0.0, times=times, horizon=6,
+                  symbols=symbols)
+    return panel, proba
+
+
+@pytest.mark.parametrize("top_k,rebalance,allow_short", [
+    (3, 42, True), (2, 42, True), (5, 13, True), (3, 1, True), (3, 42, False),
+])
+def test_panel_positions_match_the_original_loop_exactly(top_k, rebalance,
+                                                         allow_short):
+    from nullres.crosssec import panel_positions
+
+    panel, proba = _panel_with_deaths()
+    fast = panel_positions(proba, panel, top_k=top_k, rebalance=rebalance,
+                           allow_short=allow_short)
+    slow = _reference_panel_positions(proba, panel, top_k=top_k,
+                                      rebalance=rebalance,
+                                      allow_short=allow_short)
+    assert list(fast.columns) == list(slow.columns)
+    assert fast.index.equals(slow.index)
+    assert np.array_equal(fast.to_numpy(), slow.to_numpy()), (
+        "vectorised positions differ from the reference loop by "
+        f"{np.nanmax(np.abs(fast.to_numpy() - slow.to_numpy())):.3e}"
+    )
+
+
+def test_panel_positions_exercises_the_dead_leg_rescale():
+    """The equivalence test is only worth something if deaths actually occur."""
+    from nullres.crosssec import panel_positions
+
+    panel, proba = _panel_with_deaths()
+    pos = panel_positions(proba, panel, top_k=2, rebalance=42)
+    per_name = pos.abs().max().max()
+    assert per_name > 0.5 + 1e-9, (
+        "no leg was ever rescaled above its nominal 0.5, so the branch that "
+        "keeps the book dollar-neutral after a delisting went untested"
+    )
+    net = pos.sum(axis=1)
+    assert np.allclose(net, 0.0, atol=1e-12), "the book must stay dollar neutral"
+
+
+def test_equal_weight_book_matches_the_original_loop_exactly():
+    from nullres.crosssec import _equal_weight_book
+
+    panel, _ = _panel_with_deaths()
+    alive = panel.ret_next.notna()
+    fast = _equal_weight_book(alive, 42)
+    slow = _reference_equal_weight(alive, 42)
+    assert np.array_equal(fast.to_numpy(), slow.to_numpy())
+
+
+def test_equal_weight_drifts_below_fully_invested_after_a_death():
+    """Between rebalances a dead symbol is zeroed and NOT redistributed."""
+    from nullres.crosssec import _equal_weight_book
+
+    panel, _ = _panel_with_deaths()
+    alive = panel.ret_next.notna()
+    book = _equal_weight_book(alive, 42)
+    gross = book.sum(axis=1)
+    assert gross.min() < 1.0 - 1e-9, "no drift occurred, so nothing was tested"
+    assert gross.max() <= 1.0 + 1e-12, "the book must never exceed fully invested"
+
+
+def test_vectorised_positions_are_much_faster():
+    """The point of the rewrite. Guards against a silent return to row-wise."""
+    import time
+
+    from nullres.crosssec import panel_positions
+
+    panel, proba = _panel_with_deaths(n_ts=1_500, n_sym=30)
+    start = time.perf_counter()
+    panel_positions(proba, panel, top_k=3, rebalance=42)
+    fast = time.perf_counter() - start
+
+    start = time.perf_counter()
+    _reference_panel_positions(proba, panel, top_k=3, rebalance=42)
+    slow = time.perf_counter() - start
+
+    assert fast < slow / 5, (
+        f"expected a large speedup, got {slow / fast:.1f}x "
+        f"({slow:.3f}s -> {fast:.3f}s)"
     )
