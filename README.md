@@ -213,7 +213,7 @@ figure this project has produced.
 features which *lowered* mean AUC from 0.5575 to 0.5496. Discrimination got worse
 while the equity curve got luckier, and at ~190 trades the curve is decided by
 which handful of positions landed. The 37-feature panel is the honest version:
-Sharpe 1.80, deflating to **0.23**. Deflation corrects for how often you looked,
+Sharpe 1.80, deflating to **0.22**. Deflation corrects for how often you looked,
 not for whether what you found was real — which is a limit of the method worth
 knowing before you lean on it.
 

@@ -111,7 +111,7 @@ scaled up:
 ```
 1h    sigma 0.6715%   ->  557 bars   =  23.2 days
 4h    sigma 1.3054%   ->  140 bars   =  23.3 days
-1d    sigma 3.2905%   ->   24 bars   =  24.0 days
+1d    sigma 3.2912%   ->   24 bars   =  24.0 days
 ```
 
 **Break-even is ~23 days regardless of timeframe** (measured; the Gaussian

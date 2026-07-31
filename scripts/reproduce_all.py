@@ -80,6 +80,12 @@ STEPS: list[tuple[str, str, list[str], int]] = [
     ("budget-1d", "cost budget at 1d", ["budget", "-c", "configs/btc_1d.toml"], 1),
     ("features-4h", "permutation importance, 4h",
      ["features", "-c", "configs/btc_4h.toml"], 1),
+    # RESEARCH §2 claims `ls_accounts` is the model's most important feature and
+    # that four of the top ten are derivatives. Neither is visible from the
+    # step above, which runs a config with no derivatives in it at all — so for
+    # a long time the claim had no command behind it.
+    ("features-deriv", "RESEARCH §2, importance with derivatives present",
+     ["features", "-c", "configs/btc_4h_deriv.toml"], 1),
 
     # --- multiple-testing exposure the ledger must contain ------------------
     ("sweep-1h", "25-cell threshold sweep (for the ledger, not for a figure)",
@@ -115,6 +121,15 @@ STEPS: list[tuple[str, str, list[str], int]] = [
     ("xsec-wide", "RESEARCH §3.2, 136 symbols — needs precached metrics",
      ["xsec", "-c", "configs/xsec_4h.toml", "--universe", "2021-12",
       "--top-n", "40", "--verify"], 26),
+    # The 37-feature wide panel. Every document calls this "the honest version"
+    # of the headline result — its Sharpe of 1.80 deflates to 0.23 where the
+    # 46-feature 2.02 deflates to 0.45 — and nothing regenerated it, which made
+    # the most carefully argued number in the project the least reproducible.
+    # Unlike `xsec-wide` it needs no open-interest metrics, so it runs anywhere
+    # the klines and funding archives are cached.
+    ("xsec-wide-37", "RESEARCH §3.2, the honest version at 37 features",
+     ["xsec", "-c", "configs/xsec_4h.toml", "--universe", "2021-12",
+      "--top-n", "40", "--set", "data.metrics=false", "--verify"], 25),
 
     # --- what the ledger now says ------------------------------------------
     ("log", "the ledger after all of the above", ["log", "--limit", "60"], 1),
@@ -143,6 +158,22 @@ def run_step(slug: str, argv: list[str], force: bool) -> tuple[str, float]:
     return ("ok" if process.returncode == 0 else "FAILED"), elapsed
 
 
+def _matches(text: str, slug: str) -> bool:
+    """Does `text` select `slug`? An exact slug wins over a substring.
+
+    Substring matching is what makes `--only xsec` and `--only robust` useful,
+    and it is fine until one slug is a prefix of another. `xsec-wide-37` made
+    `--skip xsec-wide` remove two steps instead of one, and there was no way to
+    say "just that one" — the more specific request was the one the syntax
+    could not express.
+
+    Exact-first resolves it in the safe direction: `--skip xsec-wide` now means
+    that step alone, `--skip xsec` still means all four, and neither reading is
+    silent about what it did.
+    """
+    return text == slug if any(text == s[0] for s in STEPS) else text in slug
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -151,19 +182,38 @@ def main(argv=None) -> int:
     parser.add_argument("--skip", default=None, metavar="TEXT",
                         help="skip steps whose slug contains TEXT — for running "
                              "the wide panel on the machine that holds its "
-                             "metrics and everything else where there is RAM")
+                             "metrics and everything else where there is RAM. "
+                             "Matches on substring, and says what it removed")
     parser.add_argument("--force", action="store_true",
                         help="redo steps that already have captured output")
     parser.add_argument("--list", action="store_true",
                         help="show the steps and exit")
     args = parser.parse_args(argv)
 
-    steps = [s for s in STEPS if not args.only or args.only in s[0]]
-    if args.skip:
-        steps = [s for s in steps if args.skip not in s[0]]
+    steps = [s for s in STEPS if not args.only or _matches(args.only, s[0])]
     if not steps:
-        print(f"no step matches {args.only!r}")
+        print(f"no step matches --only {args.only!r}. Known slugs: "
+              f"{', '.join(s[0] for s in STEPS)}")
         return 1
+
+    # Both filters match on SUBSTRING, which is convenient right up until one
+    # slug is a prefix of another. `--skip xsec-wide` removes `xsec-wide-37`
+    # too — a 25-minute step and the source of the project's "honest version"
+    # figure — and a skip is invisible by construction, since a step that does
+    # not run leaves nothing behind to notice. So say what was removed.
+    if args.skip:
+        dropped = [s[0] for s in steps if _matches(args.skip, s[0])]
+        if not dropped:
+            # Silently skipping nothing is the dangerous direction: you asked
+            # not to run something expensive and it is about to run anyway.
+            print(f"--skip {args.skip!r} matches no step, so nothing was "
+                  f"skipped. Known slugs: {', '.join(s[0] for s in STEPS)}")
+            return 1
+        steps = [s for s in steps if not _matches(args.skip, s[0])]
+        print(f"skipping {len(dropped)} step(s): {', '.join(dropped)}\n")
+        if not steps:
+            print(f"--skip {args.skip!r} removed every step")
+            return 1
 
     if args.list:
         print(f"{len(steps)} step(s), ~{sum(s[3] for s in steps)} min total\n")

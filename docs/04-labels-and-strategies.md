@@ -9,13 +9,18 @@ between a hard question and an impossible one.
 
 "Will the next bar close higher?" Available for comparison; not recommended.
 
-A 1h BTC bar's typical move is ~0.54% — that is `E|move|`, the quantity the
-cost budget uses; the *standard deviation* of log returns is 0.6715% and the
-empirical mean absolute move is smaller still at 0.40%. A round trip costs
+A 1h BTC bar's *measured* mean absolute move is 0.40%, against a round trip of
 0.24%. So you are asking a model to call a coin flip well enough to clear
-**45% of the typical move**, on the noisiest timescale available. Even at a
+**60% of the typical move**, on the noisiest timescale available. Even at a
 genuine 54% accuracy the economics do not work — see
 [03 — Costs](03-costs.md).
+
+This paragraph used to quote 45%, which is the same arithmetic against the
+*Gaussian* `E|move|` of 0.54% rather than the measured 0.40%. Fat tails make a
+typical short move smaller than sigma implies, so the modelled figure understates
+the bar by a third — at exactly the one-bar horizon this label lives on. The
+standard deviation of log returns is 0.6715%, `E|move|` derived from it is 0.54%,
+and the honest number is the measured one.
 
 ### `fwd_return` — vol-scaled return over a horizon, with a dead band
 

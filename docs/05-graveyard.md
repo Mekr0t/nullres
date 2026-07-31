@@ -215,18 +215,19 @@ Reproduce: `python -m nullres ablate --config configs/btc_4h_deriv.toml`
 Three observations, in descending order of confidence:
 
 1. **`ls_accounts` — the long/short account ratio — is the single most
-   important feature in the model**, ahead of every OHLCV transform, and four
-   of the top ten are derivatives. That is new; nothing OHLCV-derived has ever
-   led that list except `vol_72`.
+   important feature in the model** at 0.0312, ahead of every OHLCV transform
+   (`z_168` is next at 0.0283), and four of the top ten are derivatives. That
+   is new; nothing OHLCV-derived has ever led that list except `vol_72`.
 2. **Consistency improved more than accuracy.** All five folds clear 0.5 with
    the data versus four without, at half the variance. Mean AUC rises 0.0118.
 3. **It is not statistically significant** (p = 0.41 on five folds), and the
    sign flips in two of them.
 
-**Funding rate itself carries almost nothing.** `funding`, `funding_ma_3` and
-`funding_ma_21` all rank at or below zero importance. The signal, such as it
-is, comes from *positioning* — who is long and how much — not from the price
-of carry. Worth knowing before spending more effort on funding transforms.
+**Funding rate itself carries almost nothing.** `funding` scores 0.0002,
+`funding_ma_3` -0.0004 and `funding_ma_21` -0.0010 — indistinguishable from
+zero against the 0.0312 at the top of the list. The signal, such as it is,
+comes from *positioning* — who is long and how much — not from the price of
+carry. Worth knowing before spending more effort on funding transforms.
 
 **Do not read the Sharpe numbers.** The same ablation moves `ml_direction` from
 -0.68 to +0.43, which is not evidence of anything. At ~80 trades the equity
@@ -443,7 +444,7 @@ equity curve got luckier, which is the situation the derivatives entry above
 already ruled on: at these trade counts, believe the AUC.
 
 The 37-feature panel is the honest version of this result. Its k=2 Sharpe of 1.80
-deflates to 0.23 against the ledger's 220 trials; the 2.02 deflates to 0.45, and
+deflates to 0.22 against the ledger's 220 trials; the 2.02 deflates to 0.45, and
 that gap is what deflating noise looks like. Deflation corrects for how often you
 looked, not for whether the thing you looked at was real.
 

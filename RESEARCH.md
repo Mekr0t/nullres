@@ -70,7 +70,7 @@ as stated, and the history of the number is worth more than the number:
 |---|---|---|---|
 | as first published | 1.61 | 214 | 0.05 |
 | metrics measured on the out-of-sample window only | 1.80 | 214 | 0.23 |
-| trial count deduplicated, `prior_trials` retired | 1.80 | 220 | 0.23 |
+| trial count deduplicated, `prior_trials` retired | 1.80 | 220 | 0.22 |
 | open-interest features added to the panel | **2.02** | 220 | **0.45** |
 
 The first two steps were corrections: Sharpe was being diluted across bars the
@@ -83,7 +83,7 @@ nine open-interest features lifted the k=2 Sharpe from 1.80 to 2.02 while
 the equity curve got luckier. This repository already has a rule for that
 situation, in the derivatives entry of the graveyard: at these trade counts the
 curve is decided by which handful of positions landed, so believe the AUC. On
-that rule the honest figure is the **0.23** of the 37-feature panel, and 0.45 is
+that rule the honest figure is the **0.22** of the 37-feature panel, and 0.45 is
 what deflating a lucky Sharpe looks like.
 
 Deflation cannot see this. It corrects for how many times you looked; it cannot
@@ -160,7 +160,7 @@ scales as `sqrt(bar length)`:
 |---|---|---|---|---|
 | 1h | 0.6715% | 502 | **557** | 23.2 days |
 | 4h | 1.3054% | 133 | **140** | 23.3 days |
-| 1d | 3.2905% | 21 | **24** | 24.0 days |
+| 1d | 3.2912% | 21 | **24** | 24.0 days |
 
 Each sigma is the realised standard deviation of that timeframe's log returns.
 The 4h row previously read 1.3430%, which is `0.6715% x 2` — the sqrt-scaling
@@ -203,9 +203,12 @@ and benchmark; only the feature set differs).
 Reproduce: `python -m nullres ablate --config configs/btc_4h_deriv.toml`
 
 **Feature importance.** `ls_accounts` — the long/short account ratio — is the
-most important single feature in the model, ahead of every price-derived one.
-Four of the top ten are derivatives. Funding *rate* itself carries nothing:
-`funding`, `funding_ma_3` and `funding_ma_21` all rank at or below zero.
+most important single feature in the model at **0.0312**, ahead of every
+price-derived one (`z_168` is next at 0.0283). Four of the top ten are
+derivatives. Funding *rate* itself carries nothing: `funding` scores 0.0002,
+`funding_ma_3` -0.0004 and `funding_ma_21` -0.0010, against 0.0312 at the top.
+
+Reproduce: `python -m nullres features --config configs/btc_4h_deriv.toml`
 
 **Robustness battery.** Both strategies KILLED:
 
