@@ -5,7 +5,6 @@ injects a specific, realistic bug and asserts the audit fails.
 """
 
 import numpy as np
-import pandas as pd
 
 from nullres.audit import check_label_leakage, check_point_in_time
 from nullres.config import LabelConfig

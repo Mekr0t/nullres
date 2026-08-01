@@ -207,3 +207,83 @@ def test_cli_argv_does_not_leak_the_host_command_line():
     with pytest.raises(SystemExit) as caught:
         main([])
     assert caught.value.code == 2
+
+
+# ---------------------------------------------------------------------------
+# The command line rejects what it cannot honour
+# ---------------------------------------------------------------------------
+
+def _parser():
+    from nullres.cli import build_parser
+
+    return build_parser()
+
+
+@pytest.mark.parametrize("argv", [
+    ["log", "--top-k", "99"],           # xsec option on the ledger command
+    ["log", "--verify"],
+    ["run", "--verify"],                # xsec option on run
+    ["run", "--top-n", "40"],
+    ["budget", "--strategy", "donchian"],   # robust/sweep option on budget
+    ["xsec", "--save"],                 # run option on xsec
+    ["audit", "--trials", "5"],         # audit does not deflate anything
+    ["fetch", "--rebalance", "10"],
+])
+def test_a_flag_a_command_cannot_honour_is_rejected(argv):
+    """The flat parser accepted every flag for every command and ignored the
+    ones that did not apply, so `nullres log --top-k 99 --verify` ran happily
+    and answered a different question than the one asked."""
+    from nullres.cli import main
+
+    with pytest.raises(SystemExit) as caught:
+        main(argv)
+    assert caught.value.code == 2
+
+
+@pytest.mark.parametrize("argv", [
+    ["run", "-c", "configs/null.toml", "--save", "--trials", "7"],
+    ["run", "-c", "configs/null.toml", "--ablate", "derivatives"],
+    ["xsec", "--universe", "2021-12", "--top-n", "40", "--verify"],
+    ["xsec", "--symbols", "BTCUSDT,ETHUSDT", "--top-k", "2"],
+    ["robust", "-s", "donchian", "--transfer-start", "2021-12"],
+    ["ablate", "--group", "derivatives"],
+    ["sweep", "-s", "ml_meta"],
+    ["log", "--verdict", "KILLED", "--limit", "5"],
+    ["budget", "--set", "cost.fee_bps=20"],
+])
+def test_every_documented_invocation_parses(argv):
+    """Parsing only — these must not have become unreachable in the rewrite."""
+    args = _parser().parse_args(argv)
+    assert args.command == argv[0]
+
+
+def test_every_command_is_reachable_from_the_parser():
+    from nullres.cli import COMMANDS
+
+    for name in COMMANDS:
+        assert _parser().parse_args([name]).command == name
+
+
+def test_help_lists_every_command():
+    from nullres.cli import COMMANDS
+
+    text = _parser().format_help()
+    missing = [n for n in COMMANDS if n not in text]
+    assert not missing, f"commands absent from `nullres --help`: {missing}"
+
+
+def test_each_command_summarises_itself():
+    """A command with no summary is invisible in `--help`."""
+    from nullres.cli import COMMAND_HELP, COMMANDS
+
+    assert set(COMMAND_HELP) == set(COMMANDS)
+    assert all(COMMAND_HELP[n].strip() for n in COMMANDS)
+
+
+def test_no_command_is_missing_its_config_option():
+    """Everything except `log` operates on an experiment, so needs --config."""
+    from nullres.cli import COMMANDS
+
+    for name in COMMANDS:
+        args = _parser().parse_args([name])
+        assert hasattr(args, "config") is (name != "log"), name

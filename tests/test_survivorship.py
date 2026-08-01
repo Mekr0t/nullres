@@ -9,7 +9,6 @@ rather than left implied.
 from __future__ import annotations
 
 import pandas as pd
-import pytest
 
 from nullres.audit import check_survivorship
 from nullres.data.universe import delisted_from_cache

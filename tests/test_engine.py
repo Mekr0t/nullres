@@ -213,7 +213,6 @@ def test_gross_exposure_distinguishes_leverage_from_participation():
 
 def test_gross_exposure_is_reported_for_a_panel_book():
     """The panel path stores gross notional in `position`; it must surface."""
-    import numpy as np
 
     from nullres.backtest.metrics import summarize
     from nullres.backtest.engine import BacktestResult

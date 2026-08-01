@@ -316,10 +316,20 @@ def test_log_runs_without_a_config_file(tmp_path, monkeypatch, capsys):
     """`nullres log` reads the ledger and nothing else.
 
     It used to load configs/btc_1h.toml first, so the one command that should
-    work in any checkout failed when that file was absent.
+    work in any checkout failed when that file was absent. Since the CLI moved
+    to subcommands the guarantee is stronger: `log` has no `--config` to load.
     """
     from nullres.cli import main
 
-    monkeypatch.chdir(tmp_path)
-    assert main(["log", "--config", "nonexistent.toml"]) == 0
+    monkeypatch.chdir(tmp_path)          # no configs/ directory here at all
+    assert main(["log"]) == 0
     assert "No runs recorded yet" in capsys.readouterr().out
+
+
+def test_log_does_not_accept_a_config_at_all():
+    """The flat parser took --config for every command, needed or not."""
+    from nullres.cli import main
+
+    with pytest.raises(SystemExit) as caught:
+        main(["log", "--config", "anything.toml"])
+    assert caught.value.code == 2

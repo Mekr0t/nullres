@@ -1,24 +1,9 @@
-"""Command line interface.
+"""A research harness that tries to disprove trading strategies.
 
-    nullres fetch    --config configs/btc_1h.toml     download and cache bars
-    nullres budget   --config configs/btc_1h.toml     accuracy needed to beat costs
-    nullres audit    --config configs/btc_1h.toml     leakage + null-data checks
-    nullres run      --config configs/btc_1h.toml     backtest every strategy
-    nullres sweep    --config configs/btc_1h.toml     threshold sensitivity surface
-    nullres features --config configs/btc_1h.toml     out-of-sample importances
-    nullres ablate   --config configs/btc_4h_deriv.toml --ablate derivatives
-                                                   matched-sample A/B on AUC
-    nullres xsec     --config configs/xsec_4h.toml    cross-sectional long/short
-    nullres log                                       the run ledger
-    nullres robust   --config configs/btc_4h.toml -s donchian
-                                                   three falsification tests:
-                                                   parameter neighbourhood,
-                                                   sub-period stability vs hold,
-                                                   cross-symbol transfer
-
-Any option can be overridden without editing the file:
-
-    nullres run -c configs/btc_1h.toml --set sizing.min_hold=168
+The command list lives in `COMMAND_HELP` and the options in `build_parser`, so
+`nullres --help` is generated rather than transcribed. This docstring used to
+carry a hand-written copy of both, which had already drifted — it advertised
+`ablate --ablate derivatives`, a flag that no longer exists.
 
 Every command here is three lines: render the header, call `nullres.api`,
 render the result. Nothing in this file computes anything. If you find yourself
@@ -26,6 +11,12 @@ adding a calculation to a `cmd_*` function, it belongs in `nullres.api`; if you
 find yourself adding a format string, it belongs in `nullres.report`. That
 boundary is what makes each command callable from Python — the CLI is one of
 two front ends, not the only way in.
+
+Options are attached per subcommand for the same reason. The flat parser this
+replaced accepted every flag for every command, so `nullres log --top-k 99
+--verify` ran happily and ignored both. A silently dropped flag is worse than
+a rejected one: the output looks like an answer to the question you thought
+you asked.
 """
 
 from __future__ import annotations
@@ -38,7 +29,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from nullres import api, report
+from nullres import __version__, api, report
 from nullres.config import load_config
 from nullres.errors import ConfigError, NullresError
 
@@ -74,9 +65,6 @@ def _configure_logging(level: int = logging.INFO) -> None:
 
 # Default counterparties for `robust`'s cross-symbol transfer test.
 TRANSFER_SYMBOLS = ("ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT")
-
-# Commands that operate on the ledger rather than on an experiment.
-NO_CONFIG = {"log"}
 
 
 def _split_symbols(raw: str | None) -> list[str]:
@@ -148,7 +136,7 @@ def cmd_robust(cfg, args) -> int:
 
 def cmd_ablate(cfg, args) -> int:
     """Does a feature group improve DISCRIMINATION, on matched samples?"""
-    group = args.ablate or "derivatives"
+    group = args.group
     print(report.ablate_header(cfg, group))
     print(report.ablate_body(api.ablate(cfg, group)))
     return 0
@@ -192,69 +180,164 @@ COMMANDS = {
 }
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="nullres", description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("command", choices=sorted(COMMANDS))
-    parser.add_argument("--config", "-c", default="configs/btc_1h.toml")
-    parser.add_argument("--strategy", "-s", default="ml_meta",
-                        help="sweep/robust: which strategy to operate on")
-    parser.add_argument("--save", action="store_true", help="run: write metrics JSON")
-    parser.add_argument("--trials", type=int, default=None,
-                        help="override the multiple-testing trial count used by "
-                             "deflated_sharpe (default: read from the run ledger)")
-    parser.add_argument("--verdict", default=None,
-                        choices=["KILLED", "SURVIVED", "INCONCLUSIVE"],
-                        help="log: show only runs with this verdict")
-    parser.add_argument("--limit", type=int, default=25,
-                        help="log: how many recent runs to show")
-    parser.add_argument("--ablate", default=None, metavar="GROUP",
-                        help="run: drop a feature group (e.g. 'derivatives') "
-                             "after row alignment, for a matched-sample A/B")
-    # Default is None, not the list, so "was this passed?" is answerable.
-    # `cmd_xsec` needs to know, and used to find out by scanning sys.argv for a
-    # string starting with "--symbols" — which read the HOST process's command
-    # line whenever argv was empty, since `[] or sys.argv[1:]` skips the empty
-    # list. argparse already has a sentinel for this; use it.
-    parser.add_argument("--symbols", default=None,
-                        help=f"robust: symbols for the cross-symbol transfer test "
-                             f"(default: {','.join(TRANSFER_SYMBOLS)}); "
-                             f"xsec: use these instead of the fixed universe")
-    parser.add_argument("--top-k", type=int, default=None,
-                        help="xsec: symbols long and short per side")
-    parser.add_argument("--universe", default=None, metavar="YYYY-MM",
-                        help="xsec: enumerate the universe from the archive as "
-                             "of this month instead of the hardcoded 11")
-    parser.add_argument("--top-n", type=int, default=None,
-                        help="xsec: keep the top-N by trailing dollar volume")
-    parser.add_argument("--rebalance", type=int, default=42,
-                        help="xsec: bars between book rebalances (turnover control)")
-    parser.add_argument("--verify", action="store_true",
-                        help="xsec: run the controls that decide whether panel "
-                             "skill is real — shuffled labels, survivors-only, "
-                             "per-symbol spread, delisted P&L share, tail census")
-    parser.add_argument("--transfer-start", default=None, metavar="YYYY-MM",
-                        help="robust: force a common start date across symbols "
-                             "(auxiliary archives begin at different dates)")
+# Every command is (name, handler, one-line summary, option groups). The
+# summary is what `nullres --help` lists, so it has to say what the command
+# decides, not what it computes.
+#
+# Options are attached per command rather than globally. That is the whole
+# point of the subparser rewrite: the flat parser accepted every flag for every
+# command, so `nullres log --top-k 99 --verify` ran happily and ignored both.
+# A flag that is silently dropped is worse than one that errors, because the
+# output looks like an answer to the question you thought you asked.
+COMMAND_HELP = {
+    "fetch": "download and cache bars, plus any configured futures data",
+    "budget": "what accuracy this instrument and cost structure require",
+    "audit": "five mechanical leak checks — run before believing anything",
+    "run": "backtest every configured strategy against buy & hold",
+    "sweep": "entry threshold vs holding period; read the shape, not the peak",
+    "features": "permutation importance, out of sample",
+    "ablate": "matched-sample A/B on AUC for one feature group",
+    "xsec": "cross-sectional long/short on a panel of symbols",
+    "robust": "three attempts to falsify a strategy that looked good once",
+    "log": "the run ledger — what has already been tried, and killed",
+}
+
+EPILOG = """\
+examples:
+  nullres budget -c configs/btc_1h.toml            can this idea pay for itself?
+  nullres audit  -c configs/btc_1h.toml            is the harness lying to me?
+  nullres run    -c configs/btc_1h.toml --save     backtest, with baselines
+  nullres robust -c configs/btc_4h.toml -s donchian
+  nullres xsec   -c configs/xsec_4h.toml --universe 2021-12 --top-n 40 --verify
+  nullres log --verdict KILLED                     what have I already killed?
+
+Any config value can be overridden without editing the file:
+  nullres run -c configs/btc_1h.toml --set sizing.min_hold=168
+
+`nullres <command> --help` shows the options that command actually reads.
+"""
+
+
+def _add_config_options(parser, default: str = "configs/btc_1h.toml") -> None:
+    parser.add_argument("--config", "-c", default=default, metavar="PATH",
+                        help=f"experiment config [{default}]")
     parser.add_argument("--set", action="append", default=[], metavar="a.b=v",
-                        help="override a config value, e.g. --set sizing.min_hold=12")
+                        help="override a config value, repeatable")
+
+
+def _add_trials_option(parser) -> None:
+    parser.add_argument("--trials", type=int, default=None, metavar="N",
+                        help="override the multiple-testing count used by "
+                             "deflated_sharpe (default: read from the ledger)")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """The command line, as a parser per command.
+
+    Shared options are attached through small helpers rather than a parent
+    parser so each subcommand's `--help` lists them in a sensible order.
+    """
+    parser = argparse.ArgumentParser(
+        prog="nullres", description=__doc__.split("\n\n")[0], epilog=EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--version", action="version",
+                        version=f"nullres {__version__}")
+    # Global, because they shape output rather than the experiment.
     parser.add_argument("--quiet", "-q", action="store_true",
                         help="suppress progress logging (results still print)")
     parser.add_argument("--debug", action="store_true",
                         help="log everything, and re-raise errors with a traceback")
-    args = parser.parse_args(argv)
+
+    subparsers = parser.add_subparsers(dest="command", metavar="<command>",
+                                       required=True)
+
+    def add(name: str) -> argparse.ArgumentParser:
+        # Not ArgumentDefaultsHelpFormatter: it appends "(default: None)" to
+        # every optional flag, and doubles up on the ones whose help already
+        # explains the default in words — "(default: read from the ledger)
+        # (default: None)". Defaults worth knowing are written into the help
+        # text in [brackets]; the rest are None and saying so is noise.
+        return subparsers.add_parser(
+            name, help=COMMAND_HELP[name], description=COMMAND_HELP[name],
+            formatter_class=argparse.RawDescriptionHelpFormatter)
+
+    for name in ("fetch", "budget", "audit", "features"):
+        _add_config_options(add(name))
+
+    run = add("run")
+    _add_config_options(run)
+    _add_trials_option(run)
+    run.add_argument("--save", action="store_true",
+                     help="write the metrics to <out_dir>/<name>.json")
+    run.add_argument("--ablate", default=None, metavar="GROUP",
+                     help="drop a feature group after row alignment, so rows, "
+                          "splits and benchmark stay identical")
+
+    sweep = add("sweep")
+    _add_config_options(sweep)
+    sweep.add_argument("--strategy", "-s", default="ml_meta",
+                       help="which strategy to sweep [ml_meta]")
+
+    ablate = add("ablate")
+    _add_config_options(ablate)
+    ablate.add_argument("--group", "-g", default="derivatives", metavar="GROUP",
+                        help="feature group to ablate [derivatives]")
+
+    robust = add("robust")
+    _add_config_options(robust)
+    robust.add_argument("--strategy", "-s", default="ml_meta",
+                        help="which strategy to try to falsify [ml_meta]")
+    robust.add_argument("--symbols", default=None, metavar="A,B,C",
+                        help=f"symbols for the cross-symbol transfer test "
+                             f"(default: {','.join(TRANSFER_SYMBOLS)})")
+    robust.add_argument("--transfer-start", default=None, metavar="YYYY-MM",
+                        help="force a common start date across symbols, so the "
+                             "test compares assets and not eras")
+
+    # A single-asset 1h config would load and then produce a slow, meaningless
+    # panel, so this one command carries its own default.
+    xsec = add("xsec")
+    _add_config_options(xsec, "configs/xsec_4h.toml")
+    _add_trials_option(xsec)
+    xsec.add_argument("--symbols", default=None, metavar="A,B,C",
+                      help="use these symbols instead of the fixed 2021-12 universe")
+    xsec.add_argument("--universe", default=None, metavar="YYYY-MM",
+                      help="enumerate the universe from the archive as of this "
+                           "month — the survivorship-honest option")
+    xsec.add_argument("--top-n", type=int, default=None, metavar="N",
+                      help="keep the top-N by TRAILING dollar volume")
+    xsec.add_argument("--top-k", type=int, default=None, metavar="K",
+                      help="symbols long and short per side (default: sweep k)")
+    xsec.add_argument("--rebalance", type=int, default=42, metavar="BARS",
+                      help="bars between book rebalances [42]")
+    xsec.add_argument("--verify", action="store_true",
+                      help="run the controls that decide whether panel skill is "
+                           "real — shuffled labels, survivors-only, per-symbol "
+                           "spread, delisted P&L share, tail census")
+
+    log = add("log")
+    log.add_argument("--verdict", default=None,
+                     choices=["KILLED", "SURVIVED", "INCONCLUSIVE"],
+                     help="show only runs with this verdict")
+    log.add_argument("--limit", type=int, default=25, metavar="N",
+                     help="how many recent runs to show [25]")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
 
     _configure_logging(logging.WARNING if args.quiet else
                        logging.DEBUG if args.debug else logging.INFO)
 
     pd.set_option("display.width", 200)
     try:
-        # `log` reads the ledger and nothing else. Loading a config for it made
-        # `nullres log` fail on a checkout with no configs/btc_1h.toml — the
-        # one command that should work anywhere, refusing to run over a
-        # dependency it never touches.
+        # `log` reads the ledger and nothing else, so it has no --config to
+        # load. Loading one anyway made `nullres log` fail on a checkout
+        # without configs/btc_1h.toml — the one command that should work
+        # anywhere, refusing to run over a dependency it never touches.
         cfg = None
-        if args.command not in NO_CONFIG:
+        if hasattr(args, "config"):
             cfg = load_config(args.config)
             for override in args.set:
                 _apply_override(cfg, override)
@@ -267,6 +350,7 @@ def main(argv: list[str] | None = None) -> int:
             raise
         print(f"\n{type(exc).__name__}: {exc}", file=sys.stderr)
         return exc.exit_code
+
 
 
 def _apply_override(cfg, spec: str) -> None:

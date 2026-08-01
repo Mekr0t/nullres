@@ -2,7 +2,6 @@
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from nullres.backtest.sizing import apply_min_hold, signal_to_position
 from nullres.config import SizingConfig
