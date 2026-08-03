@@ -21,7 +21,11 @@ dependencies = [
 [project.optional-dependencies]
 plot = ["matplotlib>=3.8"]
 boost = ["lightgbm>=4.0"]
-dev = ["pytest>=7.4"]
+dev = ["pytest>=7.4", "ruff>=0.6"]
+# `mkdocs build --strict` is run in CI. The API reference is generated from the
+# docstrings, so a function that loses its documentation shows up as a gap in
+# the site rather than as nothing at all.
+docs = ["mkdocs-material>=9.5", "mkdocstrings[python]>=0.24"]
 
 [project.scripts]
 nullres = "nullres.cli:main"

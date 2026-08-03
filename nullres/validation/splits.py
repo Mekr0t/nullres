@@ -15,11 +15,14 @@ want to be strict.
 
 from __future__ import annotations
 
-from typing import Iterator
+from typing import TYPE_CHECKING, Iterator
 
 import numpy as np
 
 from nullres.errors import ConfigError, InsufficientDataError
+
+if TYPE_CHECKING:                       # annotation only; no runtime import
+    from nullres.config import SplitConfig
 
 
 def remap_t_end(t_end: np.ndarray, keep: np.ndarray) -> np.ndarray:
@@ -36,7 +39,8 @@ def remap_t_end(t_end: np.ndarray, keep: np.ndarray) -> np.ndarray:
     return np.clip(mapped, np.arange(surviving.size), surviving.size - 1)
 
 
-def purged_walk_forward(t_end: np.ndarray, cfg) -> Iterator[tuple[np.ndarray, np.ndarray]]:
+def purged_walk_forward(t_end: np.ndarray, cfg: SplitConfig
+                        ) -> Iterator[tuple[np.ndarray, np.ndarray]]:
     """Yield (train_idx, test_idx) pairs of positional indices.
 
     Args:

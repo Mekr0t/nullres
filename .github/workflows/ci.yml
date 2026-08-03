@@ -96,3 +96,27 @@ jobs:
           assert any(r.verdict for r in runs), "robust recorded no verdict"
           print(f"{len(runs)} records, commands={sorted(commands)}")
           PY
+
+  docs:
+    name: documentation builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: pip install -e ".[docs]"
+
+      # --strict turns every warning into a failure, which covers the two ways
+      # this site rots. A link that resolves to nothing fails the build, and so
+      # does a documented parameter with no type annotation — the API reference
+      # is generated from the docstrings, so a claim in a docstring that no
+      # longer matches the signature stops being a silent inconsistency.
+      #
+      # README.md and RESEARCH.md are pulled in from the repo root by
+      # docs/hooks.py rather than copied, so their links are rewritten at build
+      # time; if a rewrite rule stops matching, this is what notices.
+      - name: mkdocs build --strict
+        run: mkdocs build --strict

@@ -20,7 +20,8 @@ def _drawdown(equity: pd.Series) -> pd.Series:
     return equity / equity.cummax() - 1.0
 
 
-def summarize(result, bars_per_year: int, n_trials: int = 1, mask=None) -> dict:
+def summarize(result, bars_per_year: int, n_trials: int = 1,
+              mask: pd.Series | None = None) -> dict:
     """Return a flat dict of performance statistics.
 
     Args:
@@ -152,7 +153,8 @@ def deflated_sharpe(sharpe: float, n_obs: int, bars_per_year: int,
     return float(sharpe - e_max * np.sqrt(bars_per_year / n_obs))
 
 
-def by_period(result, bars_per_year: int, mask=None, freq: str = "YE",
+def by_period(result, bars_per_year: int, mask: pd.Series | None = None,
+              freq: str = "YE",
               min_coverage: float = 0.35) -> pd.DataFrame:
     """Break performance down by calendar period.
 

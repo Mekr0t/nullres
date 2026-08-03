@@ -36,7 +36,9 @@ much better record than intuition.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -185,7 +187,9 @@ def check_null_data(run_pipeline, cfg, sharpe_limit: float = 0.5) -> Check:
     )
 
 
-def check_survivorship(symbols, delisted, point_in_time=None,
+def check_survivorship(symbols: Iterable[str],
+                       delisted: Mapping[str, Any] | None,
+                       point_in_time: Iterable[str] | None = None,
                        hardcoded: bool = False, last_bar=None,
                        sample_end=None, grace_days: int = 60) -> Check:
     """Does this universe contain assets that died?

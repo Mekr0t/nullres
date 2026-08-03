@@ -20,3 +20,7 @@ __pycache__/
 # which config, at which commit. Committing it is the point: it is what lets a
 # future run warn "you already killed this", and what makes the graveyard's
 # numbers reproducible rather than remembered.
+
+# Built documentation. `mkdocs build` regenerates it; `mkdocs serve` previews
+# it live. The sources are docs/ plus the docstrings themselves.
+/site/
