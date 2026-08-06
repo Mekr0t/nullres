@@ -42,3 +42,17 @@ testpaths = ["tests"]
 markers = [
     "slow: end-to-end runs (~1-2 min). Deselect with -m 'not slow'.",
 ]
+
+[tool.ruff]
+# 100, not the 88 default. The codebase wraps at ~79 by hand and only one line
+# ever exceeded 100, so this catches the genuinely unreadable without demanding
+# a reformat of thirty-odd legacy lines that are merely long.
+line-length = 100
+
+[tool.ruff.lint]
+# E4/E7/E9 + F is ruff's default; W and E501 are the additions. Deliberately
+# NOT enabled: I (import sorting) and UP/B/SIM, which between them want ~25
+# changes across code this project has good reasons for. A lint config should
+# describe what the tree already is, so a failure means something broke rather
+# than something was never true.
+select = ["E4", "E7", "E9", "F", "W", "E501"]

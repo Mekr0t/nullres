@@ -1,0 +1,66 @@
+name: Deploy docs
+
+# Publishing is separated from validation on purpose. `ci.yml` builds the site
+# with --strict on every pull request, including ones from forks, and that is
+# the gate. This workflow only ever runs on main, because it holds the
+# permissions to write to Pages and a fork's pull request must not be able to
+# reach them.
+on:
+  push:
+    branches: [main]
+    # Docs come from three places: the pages themselves, the docstrings the API
+    # reference is generated from, and the two root documents the build hook
+    # reads. A change to any of them changes the site.
+    paths:
+      - "docs/**"
+      - "nullres/**"
+      - "README.md"
+      - "RESEARCH.md"
+      - "mkdocs.yml"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time, and let a newer commit supersede an in-flight one —
+# but never cancel a run that is mid-publish, which would leave the site
+# half-written.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: pip install -e ".[docs]"
+
+      # --strict here as well as in ci.yml. This is the build that actually
+      # ships, and a warning that only appears on main — a link into a page
+      # deleted by the merge, say — should stop the deploy rather than publish
+      # a broken site.
+      - name: mkdocs build --strict
+        run: mkdocs build --strict
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

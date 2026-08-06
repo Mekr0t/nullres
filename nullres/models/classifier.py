@@ -99,7 +99,8 @@ def fit_predict_walk_forward(
 
         y_test = y_arr[test]
         scored = np.isfinite(y_test)
-        acc = float(((p[scored] > 0.5) == (y_test[scored] > 0.5)).mean()) if scored.any() else float("nan")
+        acc = (float(((p[scored] > 0.5) == (y_test[scored] > 0.5)).mean())
+               if scored.any() else float("nan"))
 
         # AUC is the better read on whether ANY signal exists: accuracy at a
         # fixed 0.5 cut hides a model that ranks well but is poorly calibrated.

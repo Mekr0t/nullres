@@ -59,11 +59,11 @@ class DonchianBreakout:
 
         state = np.zeros(len(close))
         current = 0.0
-        c, u, l = close.to_numpy(), upper.to_numpy(), lower.to_numpy()
+        c, hi, lo = close.to_numpy(), upper.to_numpy(), lower.to_numpy()
         for i in range(len(c)):
-            if np.isfinite(u[i]) and c[i] > u[i]:
+            if np.isfinite(hi[i]) and c[i] > hi[i]:
                 current = 1.0
-            elif np.isfinite(l[i]) and c[i] < l[i]:
+            elif np.isfinite(lo[i]) and c[i] < lo[i]:
                 current = 0.0
             state[i] = current
         return mask_to_oos(pd.Series(state, index=close.index), ctx)

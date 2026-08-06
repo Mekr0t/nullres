@@ -11,6 +11,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  lint:
+    name: ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install ruff
+
+      # The rule set lives in pyproject.toml and describes what the tree
+      # already is, so a failure here means something broke rather than that a
+      # standard was never met. It runs first and finishes in seconds — a
+      # typo'd name should not wait behind a two-minute test matrix.
+      - run: ruff check .
+
   tests:
     name: unit tests (py${{ matrix.python }})
     runs-on: ubuntu-latest
