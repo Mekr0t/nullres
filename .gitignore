@@ -1,4 +1,9 @@
-.venv/
+# Any virtualenv, not just `.venv`. Windows Smart App Control blocks pandas'
+# compiled extensions on Python 3.14 — the cp314 wheels are too new to have
+# built the download reputation it wants — so a second environment on 3.13
+# (the project's supported floor, and what CI runs) is how you get a working
+# test suite on that machine.
+.venv*/
 __pycache__/
 *.py[cod]
 .pytest_cache/
